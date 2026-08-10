@@ -9,7 +9,7 @@ const WORKER_URL = "https://crimson-wave-afc5.quadrisubomi.workers.dev";
 const FALLBACK_CATEGORIES = [
   "Best Graduating Student","Most Outstanding Student","Best Dressed (Male)",
   "Best Dressed (Female)","Most Fashionable (SWD)","NAPAS Player of the Year",
-  "Best Class Rep","Most Influential Student","Best Content Creator","Most Popular Student"
+  "Best Class Rep","Most Influential Student","Best Content Creator","Most Popular Student","Ambassador of the Year","Best Graphics Designer of the Year","Best Entrepreneur of the Year","Best Clerk of the Year","Best Assistant Governor of the Year","Miss Ebony","Best Outspoken","Best Coach of the Year","Best Content Creator of the Year","Best Blogger of the Year"
 ];
 const VOTE_OPTIONS = [1,5,10,20,50,100];
 
