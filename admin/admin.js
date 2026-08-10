@@ -1,247 +1,1735 @@
-import{initializeApp}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import{getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import{getFirestore,collection,doc,setDoc,updateDoc,deleteDoc,onSnapshot,serverTimestamp,query,orderBy}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
-import{FIREBASE_CONFIG,CLOUDINARY_CLOUD_NAME,CLOUDINARY_UPLOAD_PRESET,ADMIN_EMAIL}from"../js/config.js";
+import {
+  initializeApp
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 
-const appFirebase=initializeApp(FIREBASE_CONFIG);
-const auth=getAuth(appFirebase);
-const db=getFirestore(appFirebase);
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 
-const C=[
-"Most Fashionable","Best Class Governor","Miss Accountancy","Mrs Accountancy",
-"Best Player of the Year","Ambassador of the Year","Best Graphics Designer of the Year",
-"Best Course Rep of the Year","Best Entrepreneur of the Year","Best Clerk of the Year",
-"Best Assistant Governor of the Year","Miss Ebony","Best Outspoken","Best Coach of the Year",
-"Best Content Creator of the Year","Best Blogger of the Year","Best Brand of the Year"
+import {
+  getFirestore,
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  serverTimestamp,
+  query,
+  orderBy
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+import {
+  FIREBASE_CONFIG,
+  CLOUDINARY_CLOUD_NAME,
+  CLOUDINARY_UPLOAD_PRESET,
+  ADMIN_EMAIL
+} from "../js/config.js";
+
+
+/* =========================================================
+   FIREBASE
+========================================================= */
+
+const appFirebase = initializeApp(FIREBASE_CONFIG);
+
+const auth = getAuth(appFirebase);
+
+const db = getFirestore(appFirebase);
+
+
+/* =========================================================
+   CATEGORIES
+========================================================= */
+
+const CATEGORIES = [
+  "Most Fashionable",
+  "Best Class Governor",
+  "Miss Accountancy",
+  "Mrs Accountancy",
+  "Best Player of the Year",
+  "Ambassador of the Year",
+  "Best Graphics Designer of the Year",
+  "Best Course Rep of the Year",
+  "Best Entrepreneur of the Year",
+  "Best Clerk of the Year",
+  "Best Assistant Governor of the Year",
+  "Miss Ebony",
+  "Best Outspoken",
+  "Best Coach of the Year",
+  "Best Content Creator of the Year",
+  "Best Blogger of the Year",
+  "Best Brand of the Year"
 ];
 
-let list=[];
-let settings={votingOpen:true,votePrice:100};
-let unsubscribeStarted=false;
 
-const $=s=>document.querySelector(s);
-const $$=s=>[...document.querySelectorAll(s)];
-const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+/* =========================================================
+   STATE
+========================================================= */
 
-function showPage(page){
-  $$(".page").forEach(x=>x.classList.toggle("active",x.id===page));
-  $$(".nav-item").forEach(x=>x.classList.toggle("active",x.dataset.page===page));
-  const btn=$(`.nav-item[data-page="${page}"]`);
-  if(btn) $("#title").textContent=btn.textContent.trim();
+let contestants = [];
+
+let settings = {
+  votingOpen: true,
+  votePrice: 100
+};
+
+let listenersStarted = false;
+
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const $ = selector =>
+  document.querySelector(selector);
+
+const $$ = selector =>
+  [...document.querySelectorAll(selector)];
+
+
+function escapeHTML(value) {
+
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    character => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[character])
+  );
+
+}
+
+
+/* =========================================================
+   PAGE NAVIGATION
+========================================================= */
+
+function showPage(page) {
+
+  $$(".page").forEach(section => {
+
+    section.classList.toggle(
+      "active",
+      section.id === page
+    );
+
+  });
+
+
+  $$(".nav-item").forEach(button => {
+
+    button.classList.toggle(
+      "active",
+      button.dataset.page === page
+    );
+
+  });
+
+
+  const activeButton =
+    document.querySelector(
+      `.nav-item[data-page="${page}"]`
+    );
+
+
+  if (activeButton) {
+
+    $("#title").textContent =
+      activeButton.textContent.trim();
+
+  }
+
+
   $("#sidebar").classList.remove("open");
+
 }
 
-$("#loginForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  $("#error").textContent="";
-  try{
-    const u=await signInWithEmailAndPassword(auth,$("#email").value.trim(),$("#password").value);
-    if(!u.user.email||u.user.email.toLowerCase()!==ADMIN_EMAIL.toLowerCase()){
-      await signOut(auth);
-      throw new Error("This account is not authorised for the NAPAS admin portal.");
+
+/* =========================================================
+   LOGIN
+========================================================= */
+
+const loginForm =
+  $("#loginForm");
+
+const loginButton =
+  $("#loginButton");
+
+const loginError =
+  $("#error");
+
+
+loginForm.addEventListener(
+  "submit",
+  async event => {
+
+    event.preventDefault();
+
+
+    loginError.textContent = "";
+
+
+    const email =
+      $("#email").value.trim();
+
+    const password =
+      $("#password").value;
+
+
+    if (!email || !password) {
+
+      loginError.textContent =
+        "Enter your email and password.";
+
+      return;
+
     }
-  }catch(e){
-    $("#error").textContent=e.code==="auth/invalid-credential"?"Incorrect email or password.":e.message;
+
+
+    loginButton.disabled = true;
+
+    loginButton.textContent =
+      "Signing in...";
+
+
+    try {
+
+      const credential =
+        await signInWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+
+      const signedInEmail =
+        credential.user.email
+          ?.trim()
+          .toLowerCase();
+
+
+      const allowedEmail =
+        ADMIN_EMAIL
+          .trim()
+          .toLowerCase();
+
+
+      if (
+        !signedInEmail ||
+        signedInEmail !== allowedEmail
+      ) {
+
+        await signOut(auth);
+
+        throw new Error(
+          "This account is not authorised for the NAPAS admin portal."
+        );
+
+      }
+
+
+      /*
+       * Firebase has authenticated the administrator.
+       * onAuthStateChanged() will now open the dashboard.
+       */
+
+    }
+
+    catch (error) {
+
+      console.error(
+        "Admin login error:",
+        error
+      );
+
+
+      if (
+        error.code ===
+        "auth/invalid-credential"
+      ) {
+
+        loginError.textContent =
+          "Incorrect email or password.";
+
+      }
+
+      else if (
+        error.code ===
+        "auth/user-not-found"
+      ) {
+
+        loginError.textContent =
+          "No Firebase admin account exists with this email.";
+
+      }
+
+      else if (
+        error.code ===
+        "auth/wrong-password"
+      ) {
+
+        loginError.textContent =
+          "Incorrect password.";
+
+      }
+
+      else if (
+        error.code ===
+        "auth/invalid-email"
+      ) {
+
+        loginError.textContent =
+          "Enter a valid email address.";
+
+      }
+
+      else if (
+        error.code ===
+        "auth/too-many-requests"
+      ) {
+
+        loginError.textContent =
+          "Too many failed attempts. Please wait and try again.";
+
+      }
+
+      else {
+
+        loginError.textContent =
+          error.message ||
+          "Unable to sign in.";
+
+      }
+
+    }
+
+    finally {
+
+      loginButton.disabled = false;
+
+      loginButton.textContent =
+        "Sign in securely";
+
+    }
+
   }
-});
+);
 
-onAuthStateChanged(auth,u=>{
-  const allowed=u?.email?.toLowerCase()===ADMIN_EMAIL.toLowerCase();
-  $("#login").classList.toggle("hidden",!!allowed);
-  $("#app").classList.toggle("hidden",!allowed);
-  if(allowed){
-    $("#who").textContent=u.email;
-    if(!unsubscribeStarted) start();
+
+/* =========================================================
+   AUTH STATE
+========================================================= */
+
+onAuthStateChanged(
+  auth,
+  user => {
+
+    if (!user) {
+
+      $("#login").classList.remove(
+        "hidden"
+      );
+
+      $("#app").classList.add(
+        "hidden"
+      );
+
+      return;
+
+    }
+
+
+    const signedInEmail =
+      user.email
+        ?.trim()
+        .toLowerCase();
+
+
+    const allowedEmail =
+      ADMIN_EMAIL
+        .trim()
+        .toLowerCase();
+
+
+    if (
+      signedInEmail !==
+      allowedEmail
+    ) {
+
+      signOut(auth);
+
+      return;
+
+    }
+
+
+    /*
+     * Correct administrator.
+     */
+
+    $("#login").classList.add(
+      "hidden"
+    );
+
+    $("#app").classList.remove(
+      "hidden"
+    );
+
+
+    $("#who").textContent =
+      user.email;
+
+
+    if (!listenersStarted) {
+
+      startAdminDashboard();
+
+    }
+
   }
-});
+);
 
-$("#logout").onclick=()=>signOut(auth);
-$("#menu").onclick=()=>$("#sidebar").classList.toggle("open");
-$$(".nav-item").forEach(b=>b.onclick=()=>showPage(b.dataset.page));
-$$("[data-page-jump]").forEach(b=>b.onclick=()=>showPage(b.dataset.pageJump));
 
-function start(){
-  unsubscribeStarted=true;
+/* =========================================================
+   LOGOUT
+========================================================= */
 
-  $("#cat").innerHTML=C.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
-  $("#filter").innerHTML=`<option value="">All categories</option>`+C.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+$("#logout").addEventListener(
+  "click",
+  async () => {
+
+    await signOut(auth);
+
+    $("#password").value = "";
+
+  }
+);
+
+
+/* =========================================================
+   NAVIGATION EVENTS
+========================================================= */
+
+$("#menu").addEventListener(
+  "click",
+  () => {
+
+    $("#sidebar").classList.toggle(
+      "open"
+    );
+
+  }
+);
+
+
+$$(".nav-item").forEach(
+  button => {
+
+    button.addEventListener(
+      "click",
+      () => {
+
+        showPage(
+          button.dataset.page
+        );
+
+      }
+    );
+
+  }
+);
+
+
+$$("[data-page-jump]").forEach(
+  button => {
+
+    button.addEventListener(
+      "click",
+      () => {
+
+        showPage(
+          button.dataset.pageJump
+        );
+
+      }
+    );
+
+  }
+);
+
+
+/* =========================================================
+   START DASHBOARD
+========================================================= */
+
+function startAdminDashboard() {
+
+  listenersStarted = true;
+
+
+  $("#cat").innerHTML =
+    CATEGORIES
+      .map(
+        category =>
+          `<option value="${escapeHTML(category)}">
+            ${escapeHTML(category)}
+          </option>`
+      )
+      .join("");
+
+
+  $("#filter").innerHTML =
+    `<option value="">
+      All categories
+    </option>` +
+    CATEGORIES
+      .map(
+        category =>
+          `<option value="${escapeHTML(category)}">
+            ${escapeHTML(category)}
+          </option>`
+      )
+      .join("");
+
+
   renderCategories();
 
-  onSnapshot(collection(db,"contestants"),snap=>{
-    list=snap.docs.map(d=>({id:d.id,...d.data()}));
-    render();
-  },err=>$("#error").textContent=err.message);
 
-  onSnapshot(doc(db,"settings","voting"),snap=>{
-    if(snap.exists()) settings={...settings,...snap.data()};
-    $("#vp").value=settings.votePrice||100;
-    renderVotingState();
-    render();
-  });
+  /* =======================================================
+     CONTESTANTS
+  ====================================================== */
 
-  onSnapshot(query(collection(db,"adminActivity"),orderBy("createdAt","desc")),snap=>{
-    $("#logs").innerHTML=snap.docs.slice(0,20).map(d=>{
-      const x=d.data();
-      return `<p><strong>${esc(x.message||"Administrative activity")}</strong><br><small>${x.createdAt?.toDate?x.createdAt.toDate().toLocaleString():"Recent activity"}</small></p>`;
-    }).join("")||`<p>No recent activity.</p>`;
-  },()=>$("#logs").innerHTML="<p>Activity is not available yet.</p>");
-}
+  onSnapshot(
+    collection(
+      db,
+      "contestants"
+    ),
 
-function renderCategories(){
-  $("#cats").innerHTML=C.map((c,i)=>{
-    const count=list.filter(x=>x.category===c).length;
-    return `<article class="category-card"><span class="number">${String(i+1).padStart(2,"0")}</span><h3>${esc(c)}</h3><p>${count} contestant${count===1?"":"s"} registered</p></article>`;
-  }).join("");
-}
+    snapshot => {
 
-function render(){
-  const q=$("#search").value.toLowerCase().trim();
-  const c=$("#filter").value;
-  const st=$("#state").value;
+      contestants =
+        snapshot.docs.map(
+          snapshotDocument => ({
+            id:
+              snapshotDocument.id,
 
-  const filtered=list.filter(n=>{
-    const text=`${n.name||""} ${n.id||""}`.toLowerCase();
-    const published=n.published!==false;
-    return (!q||text.includes(q))&&(!c||n.category===c)&&(!st||(st==="yes"?published:!published));
-  });
+            ...snapshotDocument.data()
+          })
+        );
 
-  $("#rows").innerHTML=filtered.map(n=>`
-    <tr>
-      <td>${n.photo?`<img src="${esc(n.photo)}" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:10px">`:""}<strong>${esc(n.name)}</strong></td>
-      <td>${esc(n.category)}</td>
-      <td>${esc(n.id)}</td>
-      <td><span class="pill ${n.published!==false?"published":"unpublished"}">${n.published!==false?"Published":"Unpublished"}</span></td>
-      <td><strong>${Number(n.votes||0).toLocaleString()}</strong></td>
-      <td><div class="actions"><button data-edit="${esc(n.id)}">Edit</button><button data-pub="${esc(n.id)}">${n.published!==false?"Unpublish":"Publish"}</button><button data-del="${esc(n.id)}">Delete</button></div></td>
-    </tr>`).join("")||`<tr><td colspan="6">No contestants match your search.</td></tr>`;
 
-  $$("[data-edit]").forEach(b=>b.onclick=()=>openEdit(list.find(n=>n.id===b.dataset.edit)));
-  $$("[data-pub]").forEach(b=>b.onclick=async()=>{
-    const n=list.find(x=>x.id===b.dataset.pub); if(!n)return;
-    await updateDoc(doc(db,"contestants",n.id),{published:n.published===false,updatedAt:serverTimestamp()});
-    await audit(`${n.published===false?"Published":"Unpublished"} contestant: ${n.name}`);
-  });
-  $$("[data-del]").forEach(b=>b.onclick=async()=>{
-    const n=list.find(x=>x.id===b.dataset.del); if(!n)return;
-    if(confirm(`Delete ${n.name}? This removes the contestant record.`)){
-      await deleteDoc(doc(db,"contestants",n.id));
-      await audit(`Deleted contestant: ${n.name}`);
+      render();
+
+    },
+
+    error => {
+
+      console.error(
+        "Contestants listener error:",
+        error
+      );
+
     }
-  });
+  );
 
-  const total=list.reduce((s,n)=>s+Number(n.votes||0),0);
-  $("#sc").textContent=list.length.toLocaleString();
-  $("#sv").textContent=total.toLocaleString();
-  $("#sr").textContent=`₦${(total*(settings.votePrice||100)).toLocaleString()}`;
-  $("#ss").textContent=settings.votingOpen?"OPEN":"CLOSED";
-  $("#statusHint").textContent=settings.votingOpen?"Voters can vote":"Voting is currently closed";
-  $("#headerStatus").textContent=settings.votingOpen?"Voting open":"Voting closed";
 
-  const ranked=list.slice().sort((a,b)=>Number(b.votes||0)-Number(a.votes||0));
-  $("#result").innerHTML=ranked.map((n,i)=>`<tr><td><strong>#${i+1}</strong></td><td>${esc(n.name)}</td><td>${esc(n.category)}</td><td><strong>${Number(n.votes||0).toLocaleString()}</strong></td></tr>`).join("")||`<tr><td colspan="4">No contestants yet.</td></tr>`;
-  $("#topContestants").innerHTML=ranked.slice(0,5).map((n,i)=>`<div class="top-row"><span class="rank">#${i+1}</span><div><strong>${esc(n.name)}</strong><small>${esc(n.category)}</small></div><strong>${Number(n.votes||0).toLocaleString()}</strong></div>`).join("")||"<p>No contestants yet.</p>";
+  /* =======================================================
+     VOTING SETTINGS
+  ====================================================== */
+
+  onSnapshot(
+    doc(
+      db,
+      "settings",
+      "voting"
+    ),
+
+    snapshot => {
+
+      if (snapshot.exists()) {
+
+        settings = {
+          ...settings,
+          ...snapshot.data()
+        };
+
+      }
+
+
+      $("#vp").value =
+        settings.votePrice || 100;
+
+
+      renderVotingState();
+
+      render();
+
+    },
+
+    error => {
+
+      console.error(
+        "Voting settings error:",
+        error
+      );
+
+    }
+  );
+
+
+  /* =======================================================
+     ACTIVITY
+  ====================================================== */
+
+  const activityQuery =
+    query(
+      collection(
+        db,
+        "adminActivity"
+      ),
+      orderBy(
+        "createdAt",
+        "desc"
+      )
+    );
+
+
+  onSnapshot(
+    activityQuery,
+
+    snapshot => {
+
+      $("#logs").innerHTML =
+        snapshot.docs
+          .slice(0, 20)
+          .map(
+            documentSnapshot => {
+
+              const data =
+                documentSnapshot.data();
+
+
+              const date =
+                data.createdAt?.toDate
+                  ? data.createdAt
+                      .toDate()
+                      .toLocaleString()
+                  : "Recent activity";
+
+
+              return `
+                <p>
+                  <strong>
+                    ${escapeHTML(
+                      data.message ||
+                      "Administrative activity"
+                    )}
+                  </strong>
+
+                  <br>
+
+                  <small>
+                    ${escapeHTML(date)}
+                  </small>
+                </p>
+              `;
+
+            }
+          )
+          .join("") ||
+        "<p>No recent activity.</p>";
+
+    },
+
+    () => {
+
+      $("#logs").innerHTML =
+        "<p>Activity is not available yet.</p>";
+
+    }
+  );
+
+}
+
+
+/* =========================================================
+   CATEGORIES
+========================================================= */
+
+function renderCategories() {
+
+  $("#cats").innerHTML =
+    CATEGORIES
+      .map(
+        (category, index) => {
+
+          const count =
+            contestants.filter(
+              contestant =>
+                contestant.category ===
+                category
+            ).length;
+
+
+          return `
+            <article class="category-card">
+
+              <span class="number">
+                ${String(index + 1).padStart(2, "0")}
+              </span>
+
+              <h3>
+                ${escapeHTML(category)}
+              </h3>
+
+              <p>
+                ${count}
+                contestant${count === 1 ? "" : "s"}
+                registered
+              </p>
+
+            </article>
+          `;
+
+        }
+      )
+      .join("");
+
+}
+
+
+/* =========================================================
+   MAIN RENDER
+========================================================= */
+
+function render() {
+
+  const search =
+    $("#search").value
+      .toLowerCase()
+      .trim();
+
+
+  const category =
+    $("#filter").value;
+
+
+  const state =
+    $("#state").value;
+
+
+  const filtered =
+    contestants.filter(
+      contestant => {
+
+        const text =
+          `${contestant.name || ""}
+           ${contestant.id || ""}`
+            .toLowerCase();
+
+
+        const published =
+          contestant.published !== false;
+
+
+        return (
+          (!search ||
+            text.includes(search)) &&
+
+          (!category ||
+            contestant.category ===
+              category) &&
+
+          (!state ||
+            (
+              state === "yes"
+                ? published
+                : !published
+            ))
+        );
+
+      }
+    );
+
+
+  $("#rows").innerHTML =
+    filtered
+      .map(
+        contestant => {
+
+          const published =
+            contestant.published !== false;
+
+
+          return `
+            <tr>
+
+              <td>
+                <strong>
+                  ${escapeHTML(
+                    contestant.name ||
+                    "Unnamed contestant"
+                  )}
+                </strong>
+              </td>
+
+              <td>
+                ${escapeHTML(
+                  contestant.category ||
+                  ""
+                )}
+              </td>
+
+              <td>
+                ${escapeHTML(
+                  contestant.id
+                )}
+              </td>
+
+              <td>
+
+                <span
+                  class="pill ${
+                    published
+                      ? "published"
+                      : "unpublished"
+                  }"
+                >
+                  ${
+                    published
+                      ? "Published"
+                      : "Unpublished"
+                  }
+                </span>
+
+              </td>
+
+              <td>
+                <strong>
+                  ${Number(
+                    contestant.votes || 0
+                  ).toLocaleString()}
+                </strong>
+              </td>
+
+              <td>
+
+                <div class="actions">
+
+                  <button
+                    type="button"
+                    data-edit="${escapeHTML(
+                      contestant.id
+                    )}"
+                  >
+                    Edit
+                  </button>
+
+                  <button
+                    type="button"
+                    data-pub="${escapeHTML(
+                      contestant.id
+                    )}"
+                  >
+                    ${
+                      published
+                        ? "Unpublish"
+                        : "Publish"
+                    }
+                  </button>
+
+                  <button
+                    type="button"
+                    data-del="${escapeHTML(
+                      contestant.id
+                    )}"
+                  >
+                    Delete
+                  </button>
+
+                </div>
+
+              </td>
+
+            </tr>
+          `;
+
+        }
+      )
+      .join("") ||
+    `
+      <tr>
+        <td colspan="6">
+          No contestants match your search.
+        </td>
+      </tr>
+    `;
+
+
+  $$("[data-edit]").forEach(
+    button => {
+
+      button.onclick = () => {
+
+        const contestant =
+          contestants.find(
+            item =>
+              item.id ===
+              button.dataset.edit
+          );
+
+
+        if (contestant) {
+
+          openEdit(contestant);
+
+        }
+
+      };
+
+    }
+  );
+
+
+  $$("[data-pub]").forEach(
+    button => {
+
+      button.onclick = async () => {
+
+        const contestant =
+          contestants.find(
+            item =>
+              item.id ===
+              button.dataset.pub
+          );
+
+
+        if (!contestant) {
+          return;
+        }
+
+
+        await updateDoc(
+          doc(
+            db,
+            "contestants",
+            contestant.id
+          ),
+          {
+            published:
+              contestant.published === false,
+
+            updatedAt:
+              serverTimestamp()
+          }
+        );
+
+
+        await audit(
+          `${
+            contestant.published === false
+              ? "Published"
+              : "Unpublished"
+          } contestant: ${
+            contestant.name
+          }`
+        );
+
+      };
+
+    }
+  );
+
+
+  $$("[data-del]").forEach(
+    button => {
+
+      button.onclick = async () => {
+
+        const contestant =
+          contestants.find(
+            item =>
+              item.id ===
+              button.dataset.del
+          );
+
+
+        if (!contestant) {
+          return;
+        }
+
+
+        if (
+          confirm(
+            `Delete ${contestant.name}? This removes the contestant record.`
+          )
+        ) {
+
+          await deleteDoc(
+            doc(
+              db,
+              "contestants",
+              contestant.id
+            )
+          );
+
+
+          await audit(
+            `Deleted contestant: ${contestant.name}`
+          );
+
+        }
+
+      };
+
+    }
+  );
+
+
+  /* =======================================================
+     STATS
+  ====================================================== */
+
+  const totalVotes =
+    contestants.reduce(
+      (total, contestant) =>
+        total +
+        Number(
+          contestant.votes || 0
+        ),
+      0
+    );
+
+
+  $("#sc").textContent =
+    contestants.length.toLocaleString();
+
+
+  $("#sv").textContent =
+    totalVotes.toLocaleString();
+
+
+  $("#sr").textContent =
+    `₦${(
+      totalVotes *
+      Number(
+        settings.votePrice || 100
+      )
+    ).toLocaleString()}`;
+
+
+  $("#ss").textContent =
+    settings.votingOpen
+      ? "OPEN"
+      : "CLOSED";
+
+
+  $("#statusHint").textContent =
+    settings.votingOpen
+      ? "Voters can vote"
+      : "Voting is currently closed";
+
+
+  $("#headerStatus").textContent =
+    settings.votingOpen
+      ? "Voting open"
+      : "Voting closed";
+
+
+  /* =======================================================
+     RESULTS
+  ====================================================== */
+
+  const ranked =
+    contestants
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(b.votes || 0) -
+          Number(a.votes || 0)
+      );
+
+
+  $("#result").innerHTML =
+    ranked
+      .map(
+        (contestant, index) => `
+          <tr>
+
+            <td>
+              <strong>
+                #${index + 1}
+              </strong>
+            </td>
+
+            <td>
+              ${escapeHTML(
+                contestant.name
+              )}
+            </td>
+
+            <td>
+              ${escapeHTML(
+                contestant.category
+              )}
+            </td>
+
+            <td>
+              <strong>
+                ${Number(
+                  contestant.votes || 0
+                ).toLocaleString()}
+              </strong>
+            </td>
+
+          </tr>
+        `
+      )
+      .join("") ||
+    `
+      <tr>
+        <td colspan="4">
+          No contestants yet.
+        </td>
+      </tr>
+    `;
+
+
+  $("#topContestants").innerHTML =
+    ranked
+      .slice(0, 5)
+      .map(
+        (contestant, index) => `
+          <div class="top-row">
+
+            <span class="rank">
+              #${index + 1}
+            </span>
+
+            <div>
+
+              <strong>
+                ${escapeHTML(
+                  contestant.name
+                )}
+              </strong>
+
+              <small>
+                ${escapeHTML(
+                  contestant.category
+                )}
+              </small>
+
+            </div>
+
+            <strong>
+              ${Number(
+                contestant.votes || 0
+              ).toLocaleString()}
+            </strong>
+
+          </div>
+        `
+      )
+      .join("") ||
+    "No contestants yet.";
+
+
   renderCategories();
+
 }
 
-function renderVotingState(){
-  const open=!!settings.votingOpen;
-  $("#votingStateCard").className=`voting-state ${open?"open":"closed"}`;
-  $("#votingStateLabel").textContent=open?"Voting is OPEN":"Voting is CLOSED";
-  $("#votingStateDescription").textContent=open?"Voters can submit votes.":"The public voting page should not accept votes.";
-  $("#toggle").textContent=open?"Close voting":"Open voting";
+
+/* =========================================================
+   VOTING STATE
+========================================================= */
+
+function renderVotingState() {
+
+  const open =
+    !!settings.votingOpen;
+
+
+  $("#votingStateCard").className =
+    `voting-state ${
+      open
+        ? "open"
+        : "closed"
+    }`;
+
+
+  $("#votingStateLabel").textContent =
+    open
+      ? "Voting is OPEN"
+      : "Voting is CLOSED";
+
+
+  $("#votingStateDescription").textContent =
+    open
+      ? "Voters can submit votes."
+      : "The public voting page should not accept votes.";
+
+
+  $("#toggle").textContent =
+    open
+      ? "Close voting"
+      : "Open voting";
+
 }
 
-async function audit(message){
-  try{await setDoc(doc(db,"adminActivity",crypto.randomUUID()),{message,createdAt:serverTimestamp(),admin:auth.currentUser?.email||ADMIN_EMAIL});}catch{}
+
+/* =========================================================
+   AUDIT LOG
+========================================================= */
+
+async function audit(message) {
+
+  try {
+
+    await setDoc(
+      doc(
+        db,
+        "adminActivity",
+        crypto.randomUUID()
+      ),
+      {
+        message,
+        createdAt:
+          serverTimestamp(),
+        admin:
+          auth.currentUser?.email ||
+          ADMIN_EMAIL
+      }
+    );
+
+  }
+
+  catch {
+
+    // Activity logging must not
+    // stop the admin operation.
+
+  }
+
 }
 
-function openEdit(n){
-  $("#modal").classList.remove("hidden");
-  $("#mt").textContent=n?"Edit contestant":"Add contestant";
-  $("#eid").value=n?.id||"";
-  $("#name").value=n?.name||"";
-  $("#cid").value=n?.id||`CNT-${String(list.length+1).padStart(4,"0")}`;
-  $("#cat").value=n?.category||C[0];
-  $("#nick").value=n?.nickname||"";
-  $("#bio").value=n?.bio||"";
-  $("#pub").checked=n?n.published!==false:true;
-  $("#preview").innerHTML=n?.photo?`<img src="${esc(n.photo)}" alt="Current photo">`:"";
-  $("#photo").value="";
+
+/* =========================================================
+   CONTESTANT MODAL
+========================================================= */
+
+function openEdit(contestant) {
+
+  $("#modal")
+    .classList
+    .remove("hidden");
+
+
+  $("#mt").textContent =
+    contestant
+      ? "Edit contestant"
+      : "Add contestant";
+
+
+  $("#eid").value =
+    contestant?.id || "";
+
+
+  $("#name").value =
+    contestant?.name || "";
+
+
+  $("#cid").value =
+    contestant?.id ||
+    `CNT-${String(
+      contestants.length + 1
+    ).padStart(4, "0")}`;
+
+
+  $("#cat").value =
+    contestant?.category ||
+    CATEGORIES[0];
+
+
+  $("#nick").value =
+    contestant?.nickname || "";
+
+
+  $("#bio").value =
+    contestant?.bio || "";
+
+
+  $("#pub").checked =
+    contestant
+      ? contestant.published !== false
+      : true;
+
+
+  $("#preview").innerHTML =
+    contestant?.photo
+      ? `
+        <img
+          src="${escapeHTML(
+            contestant.photo
+          )}"
+          alt="Current contestant photo"
+        >
+      `
+      : "";
+
+
+  $("#photo").value = "";
+
 }
 
-function closeModal(){$("#modal").classList.add("hidden")}
-$("#add").onclick=()=>openEdit();
-$("#x").onclick=closeModal;
-$("#cancel").onclick=closeModal;
-$("#modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal()});
-$("#search").oninput=render;
-$("#filter").onchange=render;
-$("#state").onchange=render;
 
-$("#toggle").onclick=async()=>{
-  settings.votingOpen=!settings.votingOpen;
-  await setDoc(doc(db,"settings","voting"),{votingOpen:settings.votingOpen,votePrice:Number(settings.votePrice||100),updatedAt:serverTimestamp()},{merge:true});
-  await audit(`Voting ${settings.votingOpen?"opened":"closed"}`);
-};
+/* =========================================================
+   MODAL CLOSE
+========================================================= */
 
-$("#save").onclick=async()=>{
-  const price=Math.max(1,Number($("#vp").value)||100);
-  settings.votePrice=price;
-  await setDoc(doc(db,"settings","voting"),{votePrice:price,votingOpen:!!settings.votingOpen,updatedAt:serverTimestamp()},{merge:true});
-  await audit(`Vote price updated to ₦${price.toLocaleString()}`);
-  alert("Voting price saved.");
-};
+function closeModal() {
 
-$("#form").onsubmit=async e=>{
-  e.preventDefault();
-  try{
-    const old=list.find(n=>n.id===$("#eid").value);
-    let photoUrl=old?.photo||"";
-    const f=$("#photo").files[0];
+  $("#modal")
+    .classList
+    .add("hidden");
 
-    if(f){
-      if(!CLOUDINARY_CLOUD_NAME||!CLOUDINARY_UPLOAD_PRESET) throw new Error("Cloudinary settings are missing from js/config.js.");
-      const fd=new FormData();
-      fd.append("file",f);
-      fd.append("upload_preset",CLOUDINARY_UPLOAD_PRESET);
-      const r=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{method:"POST",body:fd});
-      if(!r.ok)throw new Error("Image upload failed.");
-      photoUrl=(await r.json()).secure_url;
+}
+
+
+$("#add").onclick =
+  () => openEdit();
+
+
+$("#x").onclick =
+  closeModal;
+
+
+$("#cancel").onclick =
+  closeModal;
+
+
+$("#modal").addEventListener(
+  "click",
+  event => {
+
+    if (
+      event.target.id ===
+      "modal"
+    ) {
+
+      closeModal();
+
     }
 
-    const id=$("#cid").value.trim();
-    if(!id)throw new Error("Contestant ID is required.");
+  }
+);
 
-    const data={
-      name:$("#name").value.trim(),
-      category:$("#cat").value,
-      nickname:$("#nick").value.trim(),
-      bio:$("#bio").value.trim(),
-      photo:photoUrl,
-      published:$("#pub").checked,
-      updatedAt:serverTimestamp()
-    };
 
-    if(old){
-      // votes are intentionally not written by the admin portal.
-      await setDoc(doc(db,"contestants",old.id),data,{merge:true});
-      await audit(`Updated contestant: ${data.name}`);
-    }else{
-      await setDoc(doc(db,"contestants",id),{...data,id,votes:0,createdAt:serverTimestamp()});
-      await audit(`Added contestant: ${data.name}`);
+/* =========================================================
+   FILTERS
+========================================================= */
+
+$("#search").oninput =
+  render;
+
+
+$("#filter").onchange =
+  render;
+
+
+$("#state").onchange =
+  render;
+
+
+/* =========================================================
+   VOTING TOGGLE
+========================================================= */
+
+$("#toggle").onclick =
+  async () => {
+
+    settings.votingOpen =
+      !settings.votingOpen;
+
+
+    await setDoc(
+      doc(
+        db,
+        "settings",
+        "voting"
+      ),
+      {
+        votingOpen:
+          settings.votingOpen,
+
+        votePrice:
+          Number(
+            settings.votePrice ||
+            100
+          ),
+
+        updatedAt:
+          serverTimestamp()
+
+      },
+      {
+        merge: true
+      }
+    );
+
+
+    await audit(
+      `Voting ${
+        settings.votingOpen
+          ? "opened"
+          : "closed"
+      }`
+    );
+
+  };
+
+
+/* =========================================================
+   SAVE VOTE PRICE
+========================================================= */
+
+$("#save").onclick =
+  async () => {
+
+    const price =
+      Math.max(
+        1,
+        Number(
+          $("#vp").value
+        ) || 100
+      );
+
+
+    settings.votePrice =
+      price;
+
+
+    await setDoc(
+      doc(
+        db,
+        "settings",
+        "voting"
+      ),
+      {
+        votePrice:
+          price,
+
+        votingOpen:
+          !!settings.votingOpen,
+
+        updatedAt:
+          serverTimestamp()
+
+      },
+      {
+        merge: true
+      }
+    );
+
+
+    await audit(
+      `Vote price updated to ₦${price.toLocaleString()}`
+    );
+
+
+    alert(
+      "Voting price saved."
+    );
+
+  };
+
+
+/* =========================================================
+   CONTESTANT SAVE
+========================================================= */
+
+$("#form").onsubmit =
+  async event => {
+
+    event.preventDefault();
+
+
+    try {
+
+      const old =
+        contestants.find(
+          contestant =>
+            contestant.id ===
+            $("#eid").value
+        );
+
+
+      let photoUrl =
+        old?.photo || "";
+
+
+      const file =
+        $("#photo").files[0];
+
+
+      if (file) {
+
+        if (
+          !CLOUDINARY_CLOUD_NAME ||
+          !CLOUDINARY_UPLOAD_PRESET
+        ) {
+
+          throw new Error(
+            "Cloudinary settings are missing from js/config.js."
+          );
+
+        }
+
+
+        const formData =
+          new FormData();
+
+
+        formData.append(
+          "file",
+          file
+        );
+
+
+        formData.append(
+          "upload_preset",
+          CLOUDINARY_UPLOAD_PRESET
+        );
+
+
+        const response =
+          await fetch(
+            `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+            {
+              method: "POST",
+              body: formData
+            }
+          );
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            "Image upload failed."
+          );
+
+        }
+
+
+        const uploaded =
+          await response.json();
+
+
+        photoUrl =
+          uploaded.secure_url;
+
+      }
+
+
+      const id =
+        $("#cid").value.trim();
+
+
+      if (!id) {
+
+        throw new Error(
+          "Contestant ID is required."
+        );
+
+      }
+
+
+      const data = {
+
+        name:
+          $("#name").value.trim(),
+
+        category:
+          $("#cat").value,
+
+        nickname:
+          $("#nick").value.trim(),
+
+        bio:
+          $("#bio").value.trim(),
+
+        photo:
+          photoUrl,
+
+        published:
+          $("#pub").checked,
+
+        updatedAt:
+          serverTimestamp()
+
+      };
+
+
+      if (old) {
+
+        /*
+         * IMPORTANT:
+         * Do not modify votes here.
+         */
+
+        await setDoc(
+          doc(
+            db,
+            "contestants",
+            old.id
+          ),
+          data,
+          {
+            merge: true
+          }
+        );
+
+
+        await audit(
+          `Updated contestant: ${data.name}`
+        );
+
+      }
+
+      else {
+
+        await setDoc(
+          doc(
+            db,
+            "contestants",
+            id
+          ),
+          {
+            ...data,
+            id,
+            votes: 0,
+            createdAt:
+              serverTimestamp()
+          }
+        );
+
+
+        await audit(
+          `Added contestant: ${data.name}`
+        );
+
+      }
+
+
+      closeModal();
+
     }
 
-    closeModal();
-  }catch(err){alert(err.message)}
-};
+    catch (error) {
 
-$("#export").onclick=()=>{
-  const ranked=list.slice().sort((a,b)=>Number(b.votes||0)-Number(a.votes||0));
-  const rows=[["Rank","Name","Category","Votes"],...ranked.map((n,i)=>[i+1,n.name,n.category,n.votes||0])];
-  const csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  a.download="napas-results.csv";
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
+      console.error(
+        "Contestant save error:",
+        error
+      );
+
+
+      alert(
+        error.message ||
+        "Unable to save contestant."
+      );
+
+    }
+
+  };
+
+
+/* =========================================================
+   EXPORT RESULTS
+========================================================= */
+
+$("#export").onclick =
+  () => {
+
+    const ranked =
+      contestants
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(b.votes || 0) -
+            Number(a.votes || 0)
+        );
+
+
+    const rows = [
+      [
+        "Rank",
+        "Name",
+        "Category",
+        "Votes"
+      ],
+
+      ...ranked.map(
+        (contestant, index) => [
+          index + 1,
+          contestant.name,
+          contestant.category,
+          contestant.votes || 0
+        ]
+      )
+    ];
+
+
+    const csv =
+      rows
+        .map(
+          row =>
+            row
+              .map(
+                value =>
+                  `"${String(
+                    value ?? ""
+                  ).replaceAll(
+                    '"',
+                    '""'
+                  )}"`
+              )
+              .join(",")
+        )
+        .join("\n");
+
+
+    const link =
+      document.createElement("a");
+
+
+    link.href =
+      URL.createObjectURL(
+        new Blob(
+          [csv],
+          {
+            type:
+              "text/csv;charset=utf-8"
+          }
+        )
+      );
+
+
+    link.download =
+      "napas-results.csv";
+
+
+    link.click();
+
+
+    URL.revokeObjectURL(
+      link.href
+    );
+
+  };
