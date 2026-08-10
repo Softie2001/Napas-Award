@@ -1,221 +1,1724 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getFirestore, collection, onSnapshot, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
-import { FIREBASE_CONFIG, EVENT_TIME } from "./config.js";
+
+import {
+  getFirestore,
+  collection,
+  onSnapshot,
+  doc,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+import {
+  FIREBASE_CONFIG,
+  EVENT_TIME
+} from "./config.js";
+
+/* =========================================================
+   FIREBASE
+========================================================= */
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const WORKER_URL = "https://crimson-wave-afc5.quadrisubomi.workers.dev";
+/* =========================================================
+   PAYMENT WORKER
+========================================================= */
+
+const WORKER_URL =
+  "https://crimson-wave-afc5.quadrisubomi.workers.dev";
+
+/* =========================================================
+   FALLBACK CATEGORIES
+========================================================= */
+
 const FALLBACK_CATEGORIES = [
-  "Best Graduating Student","Most Outstanding Student","Best Dressed (Male)",
-  "Best Dressed (Female)","Most Fashionable (SWD)","NAPAS Player of the Year",
-  "Best Class Rep","Most Influential Student","Best Content Creator","Most Popular Student","Ambassador of the Year","Best Graphics Designer of the Year","Best Entrepreneur of the Year","Best Clerk of the Year","Best Assistant Governor of the Year","Miss Ebony","Best Outspoken","Best Coach of the Year","Best Blogger of the Year","Best brand of the Year"
+  "Best Graduating Student",
+  "Most Outstanding Student",
+  "Best Dressed (Male)",
+  "Best Dressed (Female)",
+  "Most Fashionable (SWD)",
+  "NAPAS Player of the Year",
+  "Best Class Rep",
+  "Most Influential Student",
+  "Best Content Creator",
+  "Most Popular Student",
+  "Ambassador of the Year",
+  "Best Graphics Designer of the Year",
+  "Best Entrepreneur of the Year",
+  "Best Clerk of the Year",
+  "Best Assistant Governor of the Year",
+  "Miss Ebony",
+  "Best Outspoken",
+  "Best Coach of the Year",
+  "Best Blogger of the Year",
+  "Best Brand of the Year"
 ];
-const VOTE_OPTIONS = [1,5,10,20,50,100];
+
+/* =========================================================
+   VOTE OPTIONS
+========================================================= */
+
+const VOTE_OPTIONS = [1, 5, 10, 20, 50, 100];
+
+/* =========================================================
+   STATE
+========================================================= */
 
 let contestants = [];
-let settings = { votingOpen:true, votePrice:100 };
+
+let settings = {
+  votingOpen: true,
+  votePrice: 100
+};
+
 let selectedContestant = null;
 let selectedVotes = null;
 
-const $ = s => document.querySelector(s);
-const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-const naira = n => "₦" + Number(n || 0).toLocaleString("en-NG");
+/* =========================================================
+   HELPERS
+========================================================= */
 
-function updateCountdown(){
-  const left = Math.max(0, Math.floor((new Date(EVENT_TIME).getTime()-Date.now())/1000));
-  const d=Math.floor(left/86400), h=Math.floor((left%86400)/3600), m=Math.floor((left%3600)/60), s=left%60;
-  $("#days").textContent=String(d).padStart(2,"0");
-  $("#hours").textContent=String(h).padStart(2,"0");
-  $("#minutes").textContent=String(m).padStart(2,"0");
-  $("#seconds").textContent=String(s).padStart(2,"0");
-}
-updateCountdown(); setInterval(updateCountdown,1000);
+const $ = selector =>
+  document.querySelector(selector);
 
-function categoryName(c){ return String(c?.category || c?.awardCategory || c?.eventCategory || "Award Category"); }
-function contestantImage(c){ return c.photo || c.image || c.photoUrl || c.imageUrl || ""; }
-function contestantMeta(c){
-  return [c.department || c.course, c.level || c.className, c.matricNumber || c.matric].filter(Boolean);
-}
-function filtered(){
-  const q=($("#search").value||"").trim().toLowerCase();
-  const cat=$("#category").value||"";
-  return contestants.filter(c=>{
-    const text=[c.name,c.nickname,categoryName(c),...contestantMeta(c)].join(" ").toLowerCase();
-    return (!q || text.includes(q)) && (!cat || categoryName(c)===cat);
-  });
+const $$ = selector =>
+  [...document.querySelectorAll(selector)];
+
+function esc(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    character => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[character])
+  );
 }
 
-function renderCategories(){
-  const cats=[...new Set(contestants.map(categoryName).filter(Boolean))];
-  const list=cats.length?cats:FALLBACK_CATEGORIES;
-  $("#category").innerHTML='<option value="">All categories</option>'+list.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
-  $("#pills").innerHTML='<button class="active" type="button" data-cat="">All</button>'+list.map(c=>`<button type="button" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
-  $("#categoryGrid").innerHTML=list.map(c=>{
-    const count=contestants.filter(x=>categoryName(x)===c).length;
-    return `<a class="category-card" href="#voting" data-category-link="${esc(c)}">
-      <span><i class="category"></i><span><strong>${esc(c)}</strong><small>${count} nominee${count===1?"":"s"}</small></span></span>
-      <span class="category-arrow">›</span>
-    </a>`;
-  }).join("");
-  document.querySelectorAll("#pills button").forEach(b=>b.addEventListener("click",()=>{
-    $("#category").value=b.dataset.cat||"";
-    document.querySelectorAll("#pills button").forEach(x=>x.classList.remove("active")); b.classList.add("active");
-    renderContestants();
-  }));
-  document.querySelectorAll("[data-category-link]").forEach(a=>a.addEventListener("click",()=>{
-    $("#category").value=a.dataset.categoryLink;
-    document.querySelectorAll("#pills button").forEach(x=>x.classList.toggle("active",x.dataset.cat===a.dataset.categoryLink));
-    setTimeout(renderContestants,0);
-  }));
+function naira(value) {
+  return (
+    "₦" +
+    Number(value || 0).toLocaleString("en-NG")
+  );
 }
 
-function renderContestants(){
-  const list=filtered();
-  $("#empty").classList.toggle("hidden",list.length>0);
-  $("#grid").innerHTML=list.map(c=>{
-    const img=contestantImage(c);
-    const meta=contestantMeta(c);
-    return `<article class="card">
-      <div class="card-photo">${img?`<img src="${esc(img)}" alt="${esc(c.name||"Contestant")}" loading="lazy">`:`<div class="empty-icon">◯</div>`}</div>
-      <div class="card-body">
-        <span class="card-cat">${esc(categoryName(c))}</span>
-        <h3 class="card-name">${esc(c.name||"Unnamed contestant")}</h3>
-        <div class="card-sub">${esc(c.nickname||"")}</div>
-        <div class="card-info">${meta.map(x=>`<span>${esc(x)}</span>`).join("")}</div>
-        <div class="card-votes">${Number(c.votes||0).toLocaleString()} votes</div>
-        <button class="btn btn-purple contestant-vote" type="button" data-id="${esc(c.id)}" ${settings.votingOpen?"":"disabled"}>${settings.votingOpen?"Vote Now":"Voting Closed"} <span>→</span></button>
-      </div>
-    </article>`;
-  }).join("");
-  document.querySelectorAll(".contestant-vote").forEach(b=>b.addEventListener("click",()=>openModal(b.dataset.id)));
+/* =========================================================
+   SAFE DOM HELPERS
+========================================================= */
+
+function setText(selector, value) {
+  const element = $(selector);
+
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+/* =========================================================
+   COUNTDOWN
+========================================================= */
+
+function updateCountdown() {
+  const target =
+    new Date(EVENT_TIME).getTime();
+
+  const left = Math.max(
+    0,
+    Math.floor(
+      (target - Date.now()) / 1000
+    )
+  );
+
+  const days =
+    Math.floor(left / 86400);
+
+  const hours =
+    Math.floor((left % 86400) / 3600);
+
+  const minutes =
+    Math.floor((left % 3600) / 60);
+
+  const seconds =
+    left % 60;
+
+  setText(
+    "#days",
+    String(days).padStart(2, "0")
+  );
+
+  setText(
+    "#hours",
+    String(hours).padStart(2, "0")
+  );
+
+  setText(
+    "#minutes",
+    String(minutes).padStart(2, "0")
+  );
+
+  setText(
+    "#seconds",
+    String(seconds).padStart(2, "0")
+  );
+}
+
+updateCountdown();
+
+setInterval(
+  updateCountdown,
+  1000
+);
+
+/* =========================================================
+   CONTESTANT HELPERS
+========================================================= */
+
+function categoryName(contestant) {
+  return String(
+    contestant?.category ||
+    contestant?.awardCategory ||
+    contestant?.eventCategory ||
+    "Award Category"
+  );
+}
+
+function contestantImage(contestant) {
+  return (
+    contestant?.photo ||
+    contestant?.image ||
+    contestant?.photoUrl ||
+    contestant?.imageUrl ||
+    ""
+  );
+}
+
+function contestantMeta(contestant) {
+  return [
+    contestant?.department ||
+      contestant?.course,
+
+    contestant?.level ||
+      contestant?.className,
+
+    contestant?.matricNumber ||
+      contestant?.matric
+  ].filter(Boolean);
+}
+
+/* =========================================================
+   FILTERING
+========================================================= */
+
+function filtered() {
+  const searchInput =
+    $("#search");
+
+  const categoryInput =
+    $("#category");
+
+  const query =
+    searchInput?.value
+      ?.trim()
+      .toLowerCase() || "";
+
+  const category =
+    categoryInput?.value || "";
+
+  return contestants.filter(
+    contestant => {
+      const text = [
+        contestant?.name,
+        contestant?.nickname,
+        categoryName(contestant),
+        ...contestantMeta(contestant)
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        !query ||
+        text.includes(query);
+
+      const matchesCategory =
+        !category ||
+        categoryName(contestant) ===
+          category;
+
+      return (
+        matchesSearch &&
+        matchesCategory
+      );
+    }
+  );
+}
+
+/* =========================================================
+   CATEGORIES
+========================================================= */
+
+function renderCategories() {
+  const categories = [
+    ...new Set(
+      contestants
+        .map(categoryName)
+        .filter(Boolean)
+    )
+  ];
+
+  const list =
+    categories.length
+      ? categories
+      : FALLBACK_CATEGORIES;
+
+  /* -------------------------------------------------------
+     CATEGORY SELECT
+  ------------------------------------------------------- */
+
+  const categorySelect =
+    $("#category");
+
+  if (categorySelect) {
+    categorySelect.innerHTML =
+      `<option value="">All categories</option>` +
+      list
+        .map(
+          category =>
+            `<option value="${esc(
+              category
+            )}">
+              ${esc(category)}
+            </option>`
+        )
+        .join("");
+  }
+
+  /* -------------------------------------------------------
+     CATEGORY PILLS
+  ------------------------------------------------------- */
+
+  const pills =
+    $("#pills");
+
+  if (pills) {
+    pills.innerHTML =
+      `<button
+        type="button"
+        class="active"
+        data-cat=""
+      >
+        All
+      </button>` +
+      list
+        .map(
+          category =>
+            `<button
+              type="button"
+              data-cat="${esc(
+                category
+              )}"
+            >
+              ${esc(category)}
+            </button>`
+        )
+        .join("");
+
+    $$("#pills button").forEach(
+      button => {
+        button.addEventListener(
+          "click",
+          () => {
+            const category =
+              button.dataset.cat || "";
+
+            if ($("#category")) {
+              $("#category").value =
+                category;
+            }
+
+            $$("#pills button").forEach(
+              item =>
+                item.classList.remove(
+                  "active"
+                )
+            );
+
+            button.classList.add(
+              "active"
+            );
+
+            renderContestants();
+          }
+        );
+      }
+    );
+  }
+
+  /* -------------------------------------------------------
+     CATEGORY GRID
+  ------------------------------------------------------- */
+
+  const categoryGrid =
+    $("#categoryGrid");
+
+  if (categoryGrid) {
+    categoryGrid.innerHTML =
+      list
+        .map(category => {
+          const count =
+            contestants.filter(
+              contestant =>
+                categoryName(
+                  contestant
+                ) === category
+            ).length;
+
+          return `
+            <a
+              class="category-card"
+              href="#voting"
+              data-category-link="${esc(
+                category
+              )}"
+            >
+              <span>
+                <span>
+                  <strong>
+                    ${esc(category)}
+                  </strong>
+
+                  <small>
+                    ${count}
+                    nominee${
+                      count === 1
+                        ? ""
+                        : "s"
+                    }
+                  </small>
+                </span>
+              </span>
+
+              <span class="category-arrow">
+                ›
+              </span>
+            </a>
+          `;
+        })
+        .join("");
+
+    $$(
+      "[data-category-link]"
+    ).forEach(link => {
+      link.addEventListener(
+        "click",
+        () => {
+          const category =
+            link.dataset
+              .categoryLink || "";
+
+          if ($("#category")) {
+            $("#category").value =
+              category;
+          }
+
+          $$("#pills button").forEach(
+            button => {
+              button.classList.toggle(
+                "active",
+                (button.dataset.cat ||
+                  "") === category
+              );
+            }
+          );
+
+          setTimeout(
+            renderContestants,
+            0
+          );
+        }
+      );
+    });
+  }
+}
+
+/* =========================================================
+   CONTESTANTS
+========================================================= */
+
+function renderContestants() {
+  const grid =
+    $("#grid");
+
+  if (!grid) {
+    return;
+  }
+
+  const list =
+    filtered();
+
+  const empty =
+    $("#empty");
+
+  if (empty) {
+    empty.classList.toggle(
+      "hidden",
+      list.length > 0
+    );
+  }
+
+  grid.innerHTML =
+    list
+      .map(contestant => {
+        const image =
+          contestantImage(
+            contestant
+          );
+
+        const meta =
+          contestantMeta(
+            contestant
+          );
+
+        const votes =
+          Number(
+            contestant?.votes || 0
+          ).toLocaleString();
+
+        return `
+          <article class="card">
+
+            <div class="card-photo">
+              ${
+                image
+                  ? `
+                    <img
+                      src="${esc(image)}"
+                      alt="${esc(
+                        contestant?.name ||
+                          "Contestant"
+                      )}"
+                      loading="lazy"
+                    >
+                  `
+                  : `
+                    <div
+                      class="card-photo-placeholder"
+                      aria-hidden="true"
+                    ></div>
+                  `
+              }
+            </div>
+
+            <div class="card-body">
+
+              <span class="card-cat">
+                ${esc(
+                  categoryName(
+                    contestant
+                  )
+                )}
+              </span>
+
+              <h3 class="card-name">
+                ${esc(
+                  contestant?.name ||
+                    "Unnamed contestant"
+                )}
+              </h3>
+
+              ${
+                contestant?.nickname
+                  ? `
+                    <div class="card-sub">
+                      ${esc(
+                        contestant.nickname
+                      )}
+                    </div>
+                  `
+                  : ""
+              }
+
+              ${
+                meta.length
+                  ? `
+                    <div class="card-info">
+                      ${meta
+                        .map(
+                          value =>
+                            `<span>${esc(
+                              value
+                            )}</span>`
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : ""
+              }
+
+              <div class="card-votes">
+                ${votes} votes
+              </div>
+
+              <button
+                class="btn btn-purple contestant-vote"
+                type="button"
+                data-id="${esc(
+                  contestant.id
+                )}"
+                ${
+                  settings.votingOpen
+                    ? ""
+                    : "disabled"
+                }
+              >
+                ${
+                  settings.votingOpen
+                    ? "Vote Now"
+                    : "Voting Closed"
+                }
+
+                <span>→</span>
+              </button>
+
+            </div>
+
+          </article>
+        `;
+      })
+      .join("");
+
+  $$(".contestant-vote").forEach(
+    button => {
+      button.addEventListener(
+        "click",
+        () =>
+          openModal(
+            button.dataset.id
+          )
+      );
+    }
+  );
+
   renderLeaderboard();
 }
 
-function renderLeaderboard(){
-  const top=[...contestants].sort((a,b)=>Number(b.votes||0)-Number(a.votes||0)).slice(0,10);
-  $("#leaderboard").innerHTML=top.length?top.map((c,i)=>`<div class="leader-row">
-    <span class="rank ${i<3?"top":""}">${i+1}</span>
-    <div><div class="leader-name">${esc(c.name||"Unnamed")}</div><div class="leader-meta">${esc(categoryName(c))}</div></div>
-    <strong class="leader-votes">${Number(c.votes||0).toLocaleString()}</strong>
-  </div>`).join(""):`<div class="empty">Results will appear here.</div>`;
+/* =========================================================
+   LEADERBOARD
+========================================================= */
+
+function renderLeaderboard() {
+  const leaderboard =
+    $("#leaderboard");
+
+  if (!leaderboard) {
+    return;
+  }
+
+  const top =
+    [...contestants]
+      .sort(
+        (a, b) =>
+          Number(b?.votes || 0) -
+          Number(a?.votes || 0)
+      )
+      .slice(0, 10);
+
+  if (!top.length) {
+    leaderboard.innerHTML = `
+      <div class="empty-state">
+        No results available yet.
+      </div>
+    `;
+
+    return;
+  }
+
+  leaderboard.innerHTML =
+    top
+      .map(
+        (contestant, index) => `
+          <div class="leader-row">
+
+            <span
+              class="rank ${
+                index < 3
+                  ? "top"
+                  : ""
+              }"
+            >
+              ${index + 1}
+            </span>
+
+            <div class="leaderboard-person">
+
+              <strong>
+                ${esc(
+                  contestant?.name ||
+                    "Unnamed contestant"
+                )}
+              </strong>
+
+              <small>
+                ${esc(
+                  categoryName(
+                    contestant
+                  )
+                )}
+              </small>
+
+            </div>
+
+            <strong class="leaderboard-votes">
+              ${Number(
+                contestant?.votes || 0
+              ).toLocaleString()}
+            </strong>
+
+          </div>
+        `
+      )
+      .join("");
 }
 
-function setStatus(){
-  const open=!!settings.votingOpen;
-  $("#status").textContent=open?"Voting Open":"Voting Closed";
-  $("#status").style.color=open?"var(--success)":"var(--danger)";
-  $("#heroStatus").textContent=open?"OPEN NOW":"CLOSED";
-  $("#price").textContent=naira(settings.votePrice);
+/* =========================================================
+   STATUS
+========================================================= */
+
+function setStatus() {
+  const open =
+    !!settings.votingOpen;
+
+  setText(
+    "#status",
+    open
+      ? "Voting Open"
+      : "Voting Closed"
+  );
+
+  const status =
+    $("#status");
+
+  if (status) {
+    status.style.color =
+      open
+        ? "var(--success)"
+        : "var(--danger)";
+  }
+
+  setText(
+    "#heroStatus",
+    open
+      ? "OPEN NOW"
+      : "CLOSED"
+  );
+
+  setText(
+    "#price",
+    naira(settings.votePrice)
+  );
 }
 
-function openModal(id){
-  selectedContestant=contestants.find(c=>c.id===id);
-  if(!selectedContestant) return;
-  selectedVotes=null;
-  $("#modalCategory").textContent=categoryName(selectedContestant);
-  $("#modalName").textContent=selectedContestant.name||"Contestant";
-  $("#modalMeta").textContent=[...contestantMeta(selectedContestant),`${Number(selectedContestant.votes||0).toLocaleString()} votes`].filter(Boolean).join(" • ");
-  const img=contestantImage(selectedContestant);
-  $("#modalPhoto").innerHTML=img?`<img src="${esc(img)}" alt="${esc(selectedContestant.name||"Contestant")}">`:"";
-  $("#modalPrice").textContent=naira(settings.votePrice);
-  $("#customVotes").value="";
-  $("#voterName").value=""; $("#voterEmail").value=""; $("#voterPhone").value="";
-  $("#paymentError").classList.add("hidden"); $("#paymentError").textContent="";
-  $("#voteOptions").innerHTML=VOTE_OPTIONS.map(v=>`<button type="button" class="vote-option" data-votes="${v}">${v.toLocaleString()}<span>${naira(v*settings.votePrice)}</span></button>`).join("");
-  document.querySelectorAll(".vote-option").forEach(b=>b.addEventListener("click",()=>{
-    selectedVotes=Number(b.dataset.votes); $("#customVotes").value="";
-    document.querySelectorAll(".vote-option").forEach(x=>x.classList.remove("selected")); b.classList.add("selected"); updateTotal();
-  }));
+/* =========================================================
+   ANONYMOUS VOTER
+=========================================================
+
+   The voter does NOT enter:
+   - Name
+   - Email
+   - Phone
+
+   We generate an internal anonymous identity
+   only because Paystack/your payment worker may
+   require an email address.
+========================================================= */
+
+function createAnonymousVoter() {
+  const timestamp =
+    Date.now();
+
+  const random =
+    Math.random()
+      .toString(36)
+      .slice(2, 10);
+
+  return {
+    name: "NAPAS Voter",
+
+    email:
+      `voter-${timestamp}-${random}@napas-award.com`,
+
+    phone: ""
+  };
+}
+
+/* =========================================================
+   VOTING MODAL
+========================================================= */
+
+function openModal(id) {
+  selectedContestant =
+    contestants.find(
+      contestant =>
+        contestant.id === id
+    );
+
+  if (!selectedContestant) {
+    return;
+  }
+
+  selectedVotes = null;
+
+  setText(
+    "#modalCategory",
+    categoryName(
+      selectedContestant
+    )
+  );
+
+  setText(
+    "#modalName",
+    selectedContestant.name ||
+      "Contestant"
+  );
+
+  setText(
+    "#modalMeta",
+    [
+      ...contestantMeta(
+        selectedContestant
+      ),
+      `${Number(
+        selectedContestant.votes ||
+          0
+      ).toLocaleString()} votes`
+    ]
+      .filter(Boolean)
+      .join(" • ")
+  );
+
+  const image =
+    contestantImage(
+      selectedContestant
+    );
+
+  const modalPhoto =
+    $("#modalPhoto");
+
+  if (modalPhoto) {
+    modalPhoto.innerHTML =
+      image
+        ? `
+          <img
+            src="${esc(image)}"
+            alt="${esc(
+              selectedContestant.name ||
+                "Contestant"
+            )}"
+          >
+        `
+        : `
+          <div
+            class="card-photo-placeholder"
+            aria-hidden="true"
+          ></div>
+        `;
+  }
+
+  setText(
+    "#modalPrice",
+    naira(settings.votePrice)
+  );
+
+  const customVotes =
+    $("#customVotes");
+
+  if (customVotes) {
+    customVotes.value = "";
+  }
+
+  const paymentError =
+    $("#paymentError");
+
+  if (paymentError) {
+    paymentError.classList.add(
+      "hidden"
+    );
+
+    paymentError.textContent = "";
+  }
+
+  /* -------------------------------------------------------
+     IMPORTANT:
+     Remove voter-name/email/phone requirements.
+     They are NOT required anymore.
+  ------------------------------------------------------- */
+
+  const voterName =
+    $("#voterName");
+
+  const voterEmail =
+    $("#voterEmail");
+
+  const voterPhone =
+    $("#voterPhone");
+
+  if (voterName) {
+    voterName.value = "";
+  }
+
+  if (voterEmail) {
+    voterEmail.value = "";
+  }
+
+  if (voterPhone) {
+    voterPhone.value = "";
+  }
+
+  /* Hide old voter-details fields if they exist
+     in your current HTML. */
+
+  [
+    "#voterName",
+    "#voterEmail",
+    "#voterPhone"
+  ].forEach(selector => {
+    const input = $(selector);
+
+    if (input) {
+      const label =
+        input.closest("label");
+
+      if (label) {
+        label.style.display =
+          "none";
+      }
+    }
+  });
+
+  /* -------------------------------------------------------
+     VOTE OPTIONS
+  ------------------------------------------------------- */
+
+  const voteOptions =
+    $("#voteOptions");
+
+  if (voteOptions) {
+    voteOptions.innerHTML =
+      VOTE_OPTIONS
+        .map(
+          votes => `
+            <button
+              type="button"
+              class="vote-option"
+              data-votes="${votes}"
+            >
+              ${votes.toLocaleString()}
+
+              <span>
+                ${naira(
+                  votes *
+                    Number(
+                      settings.votePrice
+                    )
+                )}
+              </span>
+            </button>
+          `
+        )
+        .join("");
+
+    $$(".vote-option").forEach(
+      button => {
+        button.addEventListener(
+          "click",
+          () => {
+            selectedVotes =
+              Number(
+                button.dataset.votes
+              );
+
+            if (customVotes) {
+              customVotes.value =
+                "";
+            }
+
+            $$(".vote-option").forEach(
+              item =>
+                item.classList.remove(
+                  "selected"
+                )
+            );
+
+            button.classList.add(
+              "selected"
+            );
+
+            updateTotal();
+          }
+        );
+      }
+    );
+  }
+
   updateTotal();
-  $("#voteModal").classList.remove("hidden"); $("#voteModal").setAttribute("aria-hidden","false"); document.body.classList.add("modal-open");
-}
 
-function updateTotal(){
-  const custom=Number($("#customVotes").value);
-  if(custom>0){ selectedVotes=Math.floor(custom); document.querySelectorAll(".vote-option").forEach(x=>x.classList.remove("selected")); }
-  const amount=selectedVotes?selectedVotes*Number(settings.votePrice):0;
-  $("#modalTotal").textContent=naira(amount);
-  $("#pay").disabled=!(settings.votingOpen&&selectedContestant&&selectedVotes>0&&$("#voterName").value.trim()&&$("#voterEmail").value.trim());
-}
+  const modal =
+    $("#voteModal");
 
-function closeModal(){
-  $("#voteModal").classList.add("hidden"); $("#voteModal").setAttribute("aria-hidden","true"); document.body.classList.remove("modal-open"); selectedContestant=null; selectedVotes=null;
-}
-$("#modalClose").addEventListener("click",closeModal);
-$("#voteModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeModal()});
-["#customVotes","#voterName","#voterEmail","#voterPhone"].forEach(s=>$(s).addEventListener("input",updateTotal));
+  if (modal) {
+    modal.classList.remove(
+      "hidden"
+    );
 
-async function startPayment(){
-  const error=$("#paymentError"); error.classList.add("hidden");
-  if(!selectedContestant||!selectedVotes) return;
-  const name=$("#voterName").value.trim(), email=$("#voterEmail").value.trim(), phone=$("#voterPhone").value.trim();
-  if(!name||!email){ error.textContent="Please enter your name and email."; error.classList.remove("hidden"); return; }
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ error.textContent="Please enter a valid email address."; error.classList.remove("hidden"); return; }
-  const btn=$("#pay"); btn.disabled=true; btn.innerHTML="Preparing secure payment...";
-  try{
-    const res=await fetch(`${WORKER_URL}/initialize`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      contestantId:selectedContestant.id,votes:selectedVotes,email,name,phone,callbackUrl:`${location.origin}${location.pathname}?payment=return`
-    })});
-    const data=await res.json();
-    if(!res.ok||!data.success) throw new Error(data.error||"Unable to start payment.");
-    sessionStorage.setItem("napas_pending_payment",JSON.stringify({reference:data.reference,contestantId:selectedContestant.id,votes:selectedVotes,name,email,phone}));
-    location.href=data.authorization_url;
-  }catch(e){
-    error.textContent=e.message||"Unable to start payment. Please try again.";
-    error.classList.remove("hidden"); btn.disabled=false; btn.innerHTML="Continue to Payment <span>→</span>";
+    modal.setAttribute(
+      "aria-hidden",
+      "false"
+    );
+
+    document.body.classList.add(
+      "modal-open"
+    );
   }
 }
-$("#pay").addEventListener("click",startPayment);
 
-async function handlePaymentReturn(){
-  const params=new URLSearchParams(location.search);
-  const reference=params.get("reference")||params.get("trxref");
-  if(!reference) return;
-  const pending=JSON.parse(sessionStorage.getItem("napas_pending_payment")||"null");
-  if(!pending) return;
-  history.replaceState({},document.title,location.pathname+location.hash);
-  try{
-    const res=await fetch(`${WORKER_URL}/verify`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      reference,contestantId:pending.contestantId,votes:pending.votes,email:pending.email,name:pending.name,phone:pending.phone
-    })});
-    const data=await res.json();
-    if(!res.ok||!data.success) throw new Error(data.error||"Payment verification failed.");
-    sessionStorage.removeItem("napas_pending_payment");
-    $("#successText").textContent=`${pending.votes.toLocaleString()} vote${pending.votes===1?"":"s"} have been added to the selected contestant.`;
-    $("#successVotes").textContent=Number(data.newTotalVotes||0).toLocaleString();
-    $("#successReference").textContent=reference;
-    $("#successModal").classList.remove("hidden");
-  }catch(e){
-    sessionStorage.removeItem("napas_pending_payment");
-    alert(e.message||"Payment verification failed. If money was deducted, keep your Paystack reference and contact NAPAS.");
+/* =========================================================
+   UPDATE TOTAL
+========================================================= */
+
+function updateTotal() {
+  const custom =
+    Number(
+      $("#customVotes")?.value ||
+        0
+    );
+
+  if (custom > 0) {
+    selectedVotes =
+      Math.floor(custom);
+
+    $$(".vote-option").forEach(
+      option =>
+        option.classList.remove(
+          "selected"
+        )
+    );
+  }
+
+  const amount =
+    selectedVotes
+      ? selectedVotes *
+        Number(
+          settings.votePrice
+        )
+      : 0;
+
+  setText(
+    "#modalTotal",
+    naira(amount)
+  );
+
+  const pay =
+    $("#pay");
+
+  if (pay) {
+    pay.disabled = !(
+      settings.votingOpen &&
+      selectedContestant &&
+      selectedVotes > 0
+    );
   }
 }
-$("#successClose").addEventListener("click",()=>$("#successModal").classList.add("hidden"));
-$("#successResults").addEventListener("click",()=>$("#successModal").classList.add("hidden"));
 
-$("#search").addEventListener("input",renderContestants);
-$("#category").addEventListener("change",()=>{
-  document.querySelectorAll("#pills button").forEach(x=>x.classList.toggle("active",(x.dataset.cat||"")===$("#category").value));
+/* =========================================================
+   CLOSE VOTING MODAL
+========================================================= */
+
+function closeModal() {
+  const modal =
+    $("#voteModal");
+
+  if (modal) {
+    modal.classList.add(
+      "hidden"
+    );
+
+    modal.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+  }
+
+  document.body.classList.remove(
+    "modal-open"
+  );
+
+  selectedContestant =
+    null;
+
+  selectedVotes =
+    null;
+}
+
+/* =========================================================
+   MODAL EVENTS
+========================================================= */
+
+const modalClose =
+  $("#modalClose");
+
+if (modalClose) {
+  modalClose.addEventListener(
+    "click",
+    closeModal
+  );
+}
+
+const voteModal =
+  $("#voteModal");
+
+if (voteModal) {
+  voteModal.addEventListener(
+    "click",
+    event => {
+      if (
+        event.target ===
+        event.currentTarget
+      ) {
+        closeModal();
+      }
+    }
+  );
+}
+
+const customVotes =
+  $("#customVotes");
+
+if (customVotes) {
+  customVotes.addEventListener(
+    "input",
+    updateTotal
+  );
+}
+
+/* =========================================================
+   START PAYMENT
+========================================================= */
+
+async function startPayment() {
+  const error =
+    $("#paymentError");
+
+  if (error) {
+    error.classList.add(
+      "hidden"
+    );
+
+    error.textContent = "";
+  }
+
+  if (
+    !selectedContestant ||
+    !selectedVotes ||
+    selectedVotes < 1
+  ) {
+    return;
+  }
+
+  const button =
+    $("#pay");
+
+  if (!button) {
+    return;
+  }
+
+  button.disabled = true;
+
+  button.textContent =
+    "Preparing secure payment...";
+
+  /* -------------------------------------------------------
+     ANONYMOUS VOTER
+  ------------------------------------------------------- */
+
+  const voter =
+    createAnonymousVoter();
+
+  try {
+    const response =
+      await fetch(
+        `${WORKER_URL}/initialize`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            contestantId:
+              selectedContestant.id,
+
+            votes:
+              selectedVotes,
+
+            /* Generated internally.
+               Voter never sees or enters these. */
+
+            email:
+              voter.email,
+
+            name:
+              voter.name,
+
+            phone:
+              voter.phone,
+
+            callbackUrl:
+              `${location.origin}${location.pathname}?payment=return`
+          })
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (
+      !response.ok ||
+      !data.success
+    ) {
+      throw new Error(
+        data.error ||
+          "Unable to start payment."
+      );
+    }
+
+    sessionStorage.setItem(
+      "napas_pending_payment",
+      JSON.stringify({
+        reference:
+          data.reference,
+
+        contestantId:
+          selectedContestant.id,
+
+        votes:
+          selectedVotes,
+
+        email:
+          voter.email,
+
+        name:
+          voter.name,
+
+        phone:
+          voter.phone
+      })
+    );
+
+    location.href =
+      data.authorization_url;
+
+  } catch (errorObject) {
+    console.error(
+      "Payment initialization error:",
+      errorObject
+    );
+
+    if (error) {
+      error.textContent =
+        errorObject.message ||
+        "Unable to start payment. Please try again.";
+
+      error.classList.remove(
+        "hidden"
+      );
+    }
+
+    button.disabled =
+      false;
+
+    button.textContent =
+      "Make Payment";
+  }
+}
+
+/* =========================================================
+   PAYMENT BUTTON
+========================================================= */
+
+const payButton =
+  $("#pay");
+
+if (payButton) {
+  payButton.addEventListener(
+    "click",
+    startPayment
+  );
+}
+
+/* =========================================================
+   PAYMENT RETURN / VERIFICATION
+========================================================= */
+
+async function handlePaymentReturn() {
+  const params =
+    new URLSearchParams(
+      location.search
+    );
+
+  const reference =
+    params.get("reference") ||
+    params.get("trxref");
+
+  if (!reference) {
+    return;
+  }
+
+  const pendingRaw =
+    sessionStorage.getItem(
+      "napas_pending_payment"
+    );
+
+  if (!pendingRaw) {
+    return;
+  }
+
+  let pending;
+
+  try {
+    pending =
+      JSON.parse(
+        pendingRaw
+      );
+  } catch {
+    sessionStorage.removeItem(
+      "napas_pending_payment"
+    );
+
+    return;
+  }
+
+  history.replaceState(
+    {},
+    document.title,
+    location.pathname +
+      location.hash
+  );
+
+  try {
+    const response =
+      await fetch(
+        `${WORKER_URL}/verify`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            reference,
+
+            contestantId:
+              pending.contestantId,
+
+            votes:
+              pending.votes,
+
+            email:
+              pending.email,
+
+            name:
+              pending.name,
+
+            phone:
+              pending.phone
+          })
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (
+      !response.ok ||
+      !data.success
+    ) {
+      throw new Error(
+        data.error ||
+          "Payment verification failed."
+      );
+    }
+
+    sessionStorage.removeItem(
+      "napas_pending_payment"
+    );
+
+    if ($("#successText")) {
+      $("#successText").textContent =
+        `${Number(
+          pending.votes
+        ).toLocaleString()} vote${
+          Number(
+            pending.votes
+          ) === 1
+            ? ""
+            : "s"
+        } have been added to the selected contestant.`;
+    }
+
+    if ($("#successVotes")) {
+      $("#successVotes").textContent =
+        Number(
+          data.newTotalVotes ||
+            0
+        ).toLocaleString();
+    }
+
+    if ($("#successReference")) {
+      $("#successReference").textContent =
+        reference;
+    }
+
+    const successModal =
+      $("#successModal");
+
+    if (successModal) {
+      successModal.classList.remove(
+        "hidden"
+      );
+
+      successModal.setAttribute(
+        "aria-hidden",
+        "false"
+      );
+    }
+
+  } catch (errorObject) {
+    console.error(
+      "Payment verification error:",
+      errorObject
+    );
+
+    sessionStorage.removeItem(
+      "napas_pending_payment"
+    );
+
+    alert(
+      errorObject.message ||
+        "Payment verification failed. If money was deducted, keep your Paystack reference and contact NAPAS."
+    );
+  }
+}
+
+/* =========================================================
+   SUCCESS MODAL
+========================================================= */
+
+function closeSuccessModal() {
+  const modal =
+    $("#successModal");
+
+  if (modal) {
+    modal.classList.add(
+      "hidden"
+    );
+
+    modal.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+  }
+}
+
+const successClose =
+  $("#successClose");
+
+if (successClose) {
+  successClose.addEventListener(
+    "click",
+    closeSuccessModal
+  );
+}
+
+const successResults =
+  $("#successResults");
+
+if (successResults) {
+  successResults.addEventListener(
+    "click",
+    closeSuccessModal
+  );
+}
+
+/* =========================================================
+   SEARCH
+========================================================= */
+
+const search =
+  $("#search");
+
+if (search) {
+  search.addEventListener(
+    "input",
+    renderContestants
+  );
+}
+
+/* =========================================================
+   CATEGORY SELECT
+========================================================= */
+
+const category =
+  $("#category");
+
+if (category) {
+  category.addEventListener(
+    "change",
+    () => {
+      const selected =
+        category.value;
+
+      $$("#pills button").forEach(
+        button => {
+          button.classList.toggle(
+            "active",
+            (button.dataset.cat ||
+              "") === selected
+          );
+        }
+      );
+
+      renderContestants();
+    }
+  );
+}
+
+/* =========================================================
+   MOBILE MENU
+========================================================= */
+
+function closeMobileMenu() {
+  const mobileMenu =
+    $("#mobileMenu");
+
+  if (mobileMenu) {
+    mobileMenu.style.display =
+      "none";
+  }
+
+  const menuButton =
+    $("#menuBtn");
+
+  if (menuButton) {
+    menuButton.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+  }
+}
+
+const menuButton =
+  $("#menuBtn");
+
+if (menuButton) {
+  menuButton.addEventListener(
+    "click",
+    () => {
+      const mobileMenu =
+        $("#mobileMenu");
+
+      if (!mobileMenu) {
+        return;
+      }
+
+      const isOpen =
+        mobileMenu.style.display ===
+        "block";
+
+      mobileMenu.style.display =
+        isOpen
+          ? "none"
+          : "block";
+
+      menuButton.setAttribute(
+        "aria-expanded",
+        String(!isOpen)
+      );
+    }
+  );
+}
+
+$$(
+  "#mobileMenu a"
+).forEach(link => {
+  link.addEventListener(
+    "click",
+    closeMobileMenu
+  );
+});
+
+/* =========================================================
+   ESCAPE KEY
+========================================================= */
+
+document.addEventListener(
+  "keydown",
+  event => {
+    if (
+      event.key !==
+      "Escape"
+    ) {
+      return;
+    }
+
+    const voteModal =
+      $("#voteModal");
+
+    if (
+      voteModal &&
+      !voteModal.classList.contains(
+        "hidden"
+      )
+    ) {
+      closeModal();
+    }
+
+    const successModal =
+      $("#successModal");
+
+    if (
+      successModal &&
+      !successModal.classList.contains(
+        "hidden"
+      )
+    ) {
+      closeSuccessModal();
+    }
+
+    closeMobileMenu();
+  }
+);
+
+/* =========================================================
+   FIREBASE SETTINGS
+========================================================= */
+
+async function loadSettings() {
+  try {
+    const snapshot =
+      await getDoc(
+        doc(
+          db,
+          "settings",
+          "voting"
+        )
+      );
+
+    if (snapshot.exists()) {
+      settings = {
+        ...settings,
+        ...snapshot.data()
+      };
+    }
+
+  } catch (error) {
+    console.warn(
+      "Voting settings unavailable; using safe defaults.",
+      error
+    );
+  }
+
+  setStatus();
+  renderCategories();
   renderContestants();
-});
-$("#menuBtn").addEventListener("click",()=>{
-  const open=$("#mobileMenu").style.display==="block"; $("#mobileMenu").style.display=open?"none":"block"; $("#menuBtn").setAttribute("aria-expanded",String(!open));
-});
-document.querySelectorAll("#mobileMenu a").forEach(a=>a.addEventListener("click",()=>{$("#mobileMenu").style.display="none";$("#menuBtn").setAttribute("aria-expanded","false")}));
-
-async function loadSettings(){
-  try{
-    const snap=await getDoc(doc(db,"settings","voting"));
-    if(snap.exists()) settings={...settings,...snap.data()};
-  }catch(e){console.warn("Voting settings unavailable; using safe defaults.",e)}
-  setStatus(); renderCategories(); renderContestants();
 }
 
-onSnapshot(collection(db,"contestants"),snap=>{
-  contestants=snap.docs.map(d=>({id:d.id,...d.data()})).filter(c=>c.published!==false);
-  renderCategories(); renderContestants();
-},err=>console.error("Contestants listener error:",err));
+/* =========================================================
+   FIREBASE CONTESTANTS
+=========================================================
+
+   IMPORTANT:
+   Admin saves contestants into:
+
+       contestants
+
+   The public page listens to that exact collection.
+
+   Only contestants with:
+
+       published !== false
+
+   are displayed.
+
+   Therefore:
+   published: true  → SHOW
+   published: false → HIDE
+
+========================================================= */
+
+onSnapshot(
+  collection(
+    db,
+    "contestants"
+  ),
+
+  snapshot => {
+    contestants =
+      snapshot.docs
+        .map(
+          documentSnapshot => ({
+            id:
+              documentSnapshot.id,
+
+            ...documentSnapshot.data()
+          })
+        )
+        .filter(
+          contestant =>
+            contestant.published !==
+            false
+        );
+
+    console.log(
+      "NAPAS contestants loaded:",
+      contestants
+    );
+
+    renderCategories();
+    renderContestants();
+  },
+
+  error => {
+    console.error(
+      "Contestants listener error:",
+      error
+    );
+
+    const empty =
+      $("#empty");
+
+    if (empty) {
+      empty.classList.remove(
+        "hidden"
+      );
+      empty.innerHTML = `
+        <div class="empty-state">
+          Unable to load contestants.
+          Please refresh the page.
+        </div>
+      `;
+    }
+  }
+);
+
+/* =========================================================
+   START APPLICATION
+========================================================= */
 
 loadSettings();
+
 handlePaymentReturn();
