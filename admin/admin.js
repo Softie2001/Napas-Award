@@ -12,7 +12,7 @@ const C=[
 "Best Player of the Year","Ambassador of the Year","Best Graphics Designer of the Year",
 "Best Course Rep of the Year","Best Entrepreneur of the Year","Best Clerk of the Year",
 "Best Assistant Governor of the Year","Miss Ebony","Best Outspoken","Best Coach of the Year",
-"Best Content Creator of the Year","Best Blogger of the Year"
+"Best Content Creator of the Year","Best Blogger of the Year","Best Brand of the Year"
 ];
 
 let list=[];
