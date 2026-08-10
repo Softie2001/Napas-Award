@@ -77,7 +77,7 @@ let settings = {
   votePrice: 100
 };
 
-let listenersStarted = false;
+let unsubscribeStarted = false;
 
 
 /* =========================================================
@@ -91,8 +91,7 @@ const $$ = selector =>
   [...document.querySelectorAll(selector)];
 
 
-function escapeHTML(value) {
-
+function esc(value) {
   return String(value ?? "").replace(
     /[&<>"']/g,
     character => ({
@@ -101,9 +100,8 @@ function escapeHTML(value) {
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#039;"
-    }[character])
+    })[character]
   );
-
 }
 
 
@@ -114,41 +112,33 @@ function escapeHTML(value) {
 function showPage(page) {
 
   $$(".page").forEach(section => {
-
     section.classList.toggle(
       "active",
       section.id === page
     );
-
   });
 
 
   $$(".nav-item").forEach(button => {
-
     button.classList.toggle(
       "active",
       button.dataset.page === page
     );
-
   });
 
 
   const activeButton =
-    document.querySelector(
-      `.nav-item[data-page="${page}"]`
-    );
+    $(`.nav-item[data-page="${page}"]`);
 
-
-  if (activeButton) {
-
+  if (activeButton && $("#title")) {
     $("#title").textContent =
       activeButton.textContent.trim();
-
   }
 
 
-  $("#sidebar").classList.remove("open");
-
+  if ($("#sidebar")) {
+    $("#sidebar").classList.remove("open");
+  }
 }
 
 
@@ -156,171 +146,141 @@ function showPage(page) {
    LOGIN
 ========================================================= */
 
-const loginForm =
-  $("#loginForm");
+const loginForm = $("#loginForm");
 
-const loginButton =
-  $("#loginButton");
+if (loginForm) {
 
-const loginError =
-  $("#error");
+  loginForm.addEventListener(
+    "submit",
+    async event => {
 
-
-loginForm.addEventListener(
-  "submit",
-  async event => {
-
-    event.preventDefault();
+      event.preventDefault();
 
 
-    loginError.textContent = "";
+      const email =
+        $("#email").value.trim();
+
+      const password =
+        $("#password").value;
 
 
-    const email =
-      $("#email").value.trim();
-
-    const password =
-      $("#password").value;
+      $("#error").textContent = "";
 
 
-    if (!email || !password) {
+      if (!email || !password) {
+        $("#error").textContent =
+          "Please enter your email and password.";
 
-      loginError.textContent =
-        "Enter your email and password.";
-
-      return;
-
-    }
+        return;
+      }
 
 
-    loginButton.disabled = true;
-
-    loginButton.textContent =
-      "Signing in...";
-
-
-    try {
-
-      const credential =
-        await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
+      const submitButton =
+        loginForm.querySelector(
+          'button[type="submit"]'
         );
 
 
-      const signedInEmail =
-        credential.user.email
-          ?.trim()
-          .toLowerCase();
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent =
+          "Signing in...";
+      }
 
 
-      const allowedEmail =
-        ADMIN_EMAIL
-          .trim()
-          .toLowerCase();
+      try {
+
+        const credential =
+          await signInWithEmailAndPassword(
+            auth,
+            email,
+            password
+          );
 
 
-      if (
-        !signedInEmail ||
-        signedInEmail !== allowedEmail
-      ) {
+        const user =
+          credential.user;
 
-        await signOut(auth);
 
-        throw new Error(
-          "This account is not authorised for the NAPAS admin portal."
+        if (
+          !user.email ||
+          user.email.toLowerCase() !==
+            ADMIN_EMAIL.toLowerCase()
+        ) {
+
+          await signOut(auth);
+
+          throw new Error(
+            "This account is not authorised for the NAPAS admin portal."
+          );
+        }
+
+
+        /*
+          Do not manually redirect here.
+
+          onAuthStateChanged() below will
+          automatically show the dashboard.
+        */
+
+      } catch (error) {
+
+        console.error(
+          "Admin login error:",
+          error
         );
 
+
+        if (
+          error.code ===
+          "auth/invalid-credential"
+        ) {
+
+          $("#error").textContent =
+            "Incorrect email or password.";
+
+        } else if (
+          error.code ===
+          "auth/user-not-found"
+        ) {
+
+          $("#error").textContent =
+            "No administrator account exists with this email.";
+
+        } else if (
+          error.code ===
+          "auth/wrong-password"
+        ) {
+
+          $("#error").textContent =
+            "Incorrect password.";
+
+        } else if (
+          error.code ===
+          "auth/invalid-email"
+        ) {
+
+          $("#error").textContent =
+            "Please enter a valid email address.";
+
+        } else {
+
+          $("#error").textContent =
+            error.message ||
+            "Unable to sign in.";
+        }
+
+      } finally {
+
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent =
+            "Sign in securely";
+        }
       }
-
-
-      /*
-       * Firebase has authenticated the administrator.
-       * onAuthStateChanged() will now open the dashboard.
-       */
-
     }
-
-    catch (error) {
-
-      console.error(
-        "Admin login error:",
-        error
-      );
-
-
-      if (
-        error.code ===
-        "auth/invalid-credential"
-      ) {
-
-        loginError.textContent =
-          "Incorrect email or password.";
-
-      }
-
-      else if (
-        error.code ===
-        "auth/user-not-found"
-      ) {
-
-        loginError.textContent =
-          "No Firebase admin account exists with this email.";
-
-      }
-
-      else if (
-        error.code ===
-        "auth/wrong-password"
-      ) {
-
-        loginError.textContent =
-          "Incorrect password.";
-
-      }
-
-      else if (
-        error.code ===
-        "auth/invalid-email"
-      ) {
-
-        loginError.textContent =
-          "Enter a valid email address.";
-
-      }
-
-      else if (
-        error.code ===
-        "auth/too-many-requests"
-      ) {
-
-        loginError.textContent =
-          "Too many failed attempts. Please wait and try again.";
-
-      }
-
-      else {
-
-        loginError.textContent =
-          error.message ||
-          "Unable to sign in.";
-
-      }
-
-    }
-
-    finally {
-
-      loginButton.disabled = false;
-
-      loginButton.textContent =
-        "Sign in securely";
-
-    }
-
-  }
-);
+  );
+}
 
 
 /* =========================================================
@@ -331,68 +291,53 @@ onAuthStateChanged(
   auth,
   user => {
 
-    if (!user) {
+    const allowed =
+      !!user &&
+      !!user.email &&
+      user.email.toLowerCase() ===
+        ADMIN_EMAIL.toLowerCase();
 
-      $("#login").classList.remove(
-        "hidden"
+
+    if ($("#login")) {
+      $("#login").classList.toggle(
+        "hidden",
+        allowed
       );
+    }
 
-      $("#app").classList.add(
-        "hidden"
+
+    if ($("#app")) {
+      $("#app").classList.toggle(
+        "hidden",
+        !allowed
       );
-
-      return;
-
     }
 
 
-    const signedInEmail =
-      user.email
-        ?.trim()
-        .toLowerCase();
+    if (allowed) {
+
+      if ($("#who")) {
+        $("#who").textContent =
+          user.email;
+      }
 
 
-    const allowedEmail =
-      ADMIN_EMAIL
-        .trim()
-        .toLowerCase();
+      if (!unsubscribeStarted) {
+        startAdminPortal();
+      }
 
+    } else {
 
-    if (
-      signedInEmail !==
-      allowedEmail
-    ) {
+      /*
+        If someone is signed out or is not
+        the authorised administrator,
+        the login screen stays visible.
+      */
 
-      signOut(auth);
-
-      return;
-
+      if ($("#who")) {
+        $("#who").textContent = "";
+      }
     }
-
-
-    /*
-     * Correct administrator.
-     */
-
-    $("#login").classList.add(
-      "hidden"
-    );
-
-    $("#app").classList.remove(
-      "hidden"
-    );
-
-
-    $("#who").textContent =
-      user.email;
-
-
-    if (!listenersStarted) {
-
-      startAdminDashboard();
-
-    }
-
   }
 );
 
@@ -401,110 +346,127 @@ onAuthStateChanged(
    LOGOUT
 ========================================================= */
 
-$("#logout").addEventListener(
-  "click",
-  async () => {
+if ($("#logout")) {
 
-    await signOut(auth);
+  $("#logout").addEventListener(
+    "click",
+    async () => {
 
-    $("#password").value = "";
-
-  }
-);
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.error(
+          "Logout error:",
+          error
+        );
+      }
+    }
+  );
+}
 
 
 /* =========================================================
-   NAVIGATION EVENTS
+   MOBILE MENU
 ========================================================= */
 
-$("#menu").addEventListener(
-  "click",
-  () => {
+if ($("#menu")) {
 
-    $("#sidebar").classList.toggle(
-      "open"
-    );
+  $("#menu").addEventListener(
+    "click",
+    () => {
 
-  }
-);
-
-
-$$(".nav-item").forEach(
-  button => {
-
-    button.addEventListener(
-      "click",
-      () => {
-
-        showPage(
-          button.dataset.page
+      if ($("#sidebar")) {
+        $("#sidebar").classList.toggle(
+          "open"
         );
-
       }
-    );
-
-  }
-);
-
-
-$$("[data-page-jump]").forEach(
-  button => {
-
-    button.addEventListener(
-      "click",
-      () => {
-
-        showPage(
-          button.dataset.pageJump
-        );
-
-      }
-    );
-
-  }
-);
+    }
+  );
+}
 
 
 /* =========================================================
-   START DASHBOARD
+   NAVIGATION BUTTONS
 ========================================================= */
 
-function startAdminDashboard() {
+$$(".nav-item").forEach(button => {
 
-  listenersStarted = true;
+  button.addEventListener(
+    "click",
+    () => {
+
+      showPage(
+        button.dataset.page
+      );
+
+    }
+  );
+
+});
 
 
-  $("#cat").innerHTML =
-    CATEGORIES
-      .map(
-        category =>
-          `<option value="${escapeHTML(category)}">
-            ${escapeHTML(category)}
-          </option>`
-      )
-      .join("");
+$$("[data-page-jump]").forEach(button => {
+
+  button.addEventListener(
+    "click",
+    () => {
+
+      showPage(
+        button.dataset.pageJump
+      );
+
+    }
+  );
+
+});
 
 
-  $("#filter").innerHTML =
-    `<option value="">
-      All categories
-    </option>` +
-    CATEGORIES
-      .map(
-        category =>
-          `<option value="${escapeHTML(category)}">
-            ${escapeHTML(category)}
-          </option>`
-      )
-      .join("");
+/* =========================================================
+   START ADMIN PORTAL
+========================================================= */
+
+function startAdminPortal() {
+
+  unsubscribeStarted = true;
+
+
+  /* Categories */
+
+  if ($("#cat")) {
+
+    $("#cat").innerHTML =
+      CATEGORIES
+        .map(
+          category =>
+            `<option value="${esc(category)}">
+              ${esc(category)}
+            </option>`
+        )
+        .join("");
+  }
+
+
+  if ($("#filter")) {
+
+    $("#filter").innerHTML =
+      `<option value="">
+        All categories
+      </option>` +
+      CATEGORIES
+        .map(
+          category =>
+            `<option value="${esc(category)}">
+              ${esc(category)}
+            </option>`
+        )
+        .join("");
+  }
 
 
   renderCategories();
 
 
-  /* =======================================================
-     CONTESTANTS
-  ====================================================== */
+  /* Contestants listener */
 
   onSnapshot(
     collection(
@@ -516,11 +478,9 @@ function startAdminDashboard() {
 
       contestants =
         snapshot.docs.map(
-          snapshotDocument => ({
-            id:
-              snapshotDocument.id,
-
-            ...snapshotDocument.data()
+          documentSnapshot => ({
+            id: documentSnapshot.id,
+            ...documentSnapshot.data()
           })
         );
 
@@ -540,9 +500,7 @@ function startAdminDashboard() {
   );
 
 
-  /* =======================================================
-     VOTING SETTINGS
-  ====================================================== */
+  /* Voting settings listener */
 
   onSnapshot(
     doc(
@@ -563,8 +521,11 @@ function startAdminDashboard() {
       }
 
 
-      $("#vp").value =
-        settings.votePrice || 100;
+      if ($("#vp")) {
+
+        $("#vp").value =
+          settings.votePrice || 100;
+      }
 
 
       renderVotingState();
@@ -584,11 +545,9 @@ function startAdminDashboard() {
   );
 
 
-  /* =======================================================
-     ACTIVITY
-  ====================================================== */
+  /* Activity listener */
 
-  const activityQuery =
+  onSnapshot(
     query(
       collection(
         db,
@@ -598,64 +557,65 @@ function startAdminDashboard() {
         "createdAt",
         "desc"
       )
-    );
-
-
-  onSnapshot(
-    activityQuery,
+    ),
 
     snapshot => {
+
+      if (!$("#logs")) {
+        return;
+      }
+
 
       $("#logs").innerHTML =
         snapshot.docs
           .slice(0, 20)
-          .map(
-            documentSnapshot => {
+          .map(documentSnapshot => {
 
-              const data =
-                documentSnapshot.data();
+            const activity =
+              documentSnapshot.data();
 
+            return `
+              <p>
+                <strong>
+                  ${esc(
+                    activity.message ||
+                    "Administrative activity"
+                  )}
+                </strong>
 
-              const date =
-                data.createdAt?.toDate
-                  ? data.createdAt
-                      .toDate()
-                      .toLocaleString()
-                  : "Recent activity";
+                <br>
 
+                <small>
+                  ${
+                    activity.createdAt?.toDate
+                      ? activity.createdAt
+                          .toDate()
+                          .toLocaleString()
+                      : "Recent activity"
+                  }
+                </small>
+              </p>
+            `;
 
-              return `
-                <p>
-                  <strong>
-                    ${escapeHTML(
-                      data.message ||
-                      "Administrative activity"
-                    )}
-                  </strong>
-
-                  <br>
-
-                  <small>
-                    ${escapeHTML(date)}
-                  </small>
-                </p>
-              `;
-
-            }
-          )
+          })
           .join("") ||
-        "<p>No recent activity.</p>";
+        `<p>No recent activity.</p>`;
 
     },
 
-    () => {
+    error => {
 
-      $("#logs").innerHTML =
-        "<p>Activity is not available yet.</p>";
+      console.warn(
+        "Activity log unavailable:",
+        error
+      );
 
+      if ($("#logs")) {
+        $("#logs").innerHTML =
+          "<p>Activity is not available yet.</p>";
+      }
     }
   );
-
 }
 
 
@@ -664,6 +624,11 @@ function startAdminDashboard() {
 ========================================================= */
 
 function renderCategories() {
+
+  if (!$("#cats")) {
+    return;
+  }
+
 
   $("#cats").innerHTML =
     CATEGORIES
@@ -686,7 +651,7 @@ function renderCategories() {
               </span>
 
               <h3>
-                ${escapeHTML(category)}
+                ${esc(category)}
               </h3>
 
               <p>
@@ -701,28 +666,32 @@ function renderCategories() {
         }
       )
       .join("");
-
 }
 
 
 /* =========================================================
-   MAIN RENDER
+   CONTESTANTS
 ========================================================= */
 
 function render() {
 
+  if (!$("#rows")) {
+    return;
+  }
+
+
   const search =
-    $("#search").value
+    ($("#search")?.value || "")
       .toLowerCase()
       .trim();
 
 
   const category =
-    $("#filter").value;
+    $("#filter")?.value || "";
 
 
   const state =
-    $("#state").value;
+    $("#state")?.value || "";
 
 
   const filtered =
@@ -730,8 +699,10 @@ function render() {
       contestant => {
 
         const text =
-          `${contestant.name || ""}
-           ${contestant.id || ""}`
+          `
+          ${contestant.name || ""}
+          ${contestant.id || ""}
+          `
             .toLowerCase();
 
 
@@ -748,11 +719,9 @@ function render() {
               category) &&
 
           (!state ||
-            (
-              state === "yes"
-                ? published
-                : !published
-            ))
+            (state === "yes"
+              ? published
+              : !published))
         );
 
       }
@@ -762,106 +731,87 @@ function render() {
   $("#rows").innerHTML =
     filtered
       .map(
-        contestant => {
+        contestant => `
+          <tr>
 
-          const published =
-            contestant.published !== false;
-
-
-          return `
-            <tr>
-
-              <td>
-                <strong>
-                  ${escapeHTML(
-                    contestant.name ||
-                    "Unnamed contestant"
-                  )}
-                </strong>
-              </td>
-
-              <td>
-                ${escapeHTML(
-                  contestant.category ||
-                  ""
+            <td>
+              <strong>
+                ${esc(
+                  contestant.name ||
+                  "Unnamed contestant"
                 )}
-              </td>
+              </strong>
+            </td>
 
-              <td>
-                ${escapeHTML(
-                  contestant.id
-                )}
-              </td>
+            <td>
+              ${esc(
+                contestant.category ||
+                ""
+              )}
+            </td>
 
-              <td>
+            <td>
+              ${esc(
+                contestant.id
+              )}
+            </td>
 
-                <span
-                  class="pill ${
-                    published
-                      ? "published"
-                      : "unpublished"
-                  }"
+            <td>
+              <span
+                class="pill ${
+                  contestant.published !== false
+                    ? "published"
+                    : "unpublished"
+                }"
+              >
+                ${
+                  contestant.published !== false
+                    ? "Published"
+                    : "Unpublished"
+                }
+              </span>
+            </td>
+
+            <td>
+              <strong>
+                ${Number(
+                  contestant.votes || 0
+                ).toLocaleString()}
+              </strong>
+            </td>
+
+            <td>
+
+              <div class="actions">
+
+                <button
+                  data-edit="${esc(contestant.id)}"
+                >
+                  Edit
+                </button>
+
+                <button
+                  data-pub="${esc(contestant.id)}"
                 >
                   ${
-                    published
-                      ? "Published"
-                      : "Unpublished"
+                    contestant.published !== false
+                      ? "Unpublish"
+                      : "Publish"
                   }
-                </span>
+                </button>
 
-              </td>
+                <button
+                  data-del="${esc(contestant.id)}"
+                >
+                  Delete
+                </button>
 
-              <td>
-                <strong>
-                  ${Number(
-                    contestant.votes || 0
-                  ).toLocaleString()}
-                </strong>
-              </td>
+              </div>
 
-              <td>
+            </td>
 
-                <div class="actions">
-
-                  <button
-                    type="button"
-                    data-edit="${escapeHTML(
-                      contestant.id
-                    )}"
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    type="button"
-                    data-pub="${escapeHTML(
-                      contestant.id
-                    )}"
-                  >
-                    ${
-                      published
-                        ? "Unpublish"
-                        : "Publish"
-                    }
-                  </button>
-
-                  <button
-                    type="button"
-                    data-del="${escapeHTML(
-                      contestant.id
-                    )}"
-                  >
-                    Delete
-                  </button>
-
-                </div>
-
-              </td>
-
-            </tr>
-          `;
-
-        }
+          </tr>
+        `
       )
       .join("") ||
     `
@@ -873,104 +823,125 @@ function render() {
     `;
 
 
+  /* Edit */
+
   $$("[data-edit]").forEach(
     button => {
 
-      button.onclick = () => {
+      button.addEventListener(
+        "click",
+        () => {
 
-        const contestant =
-          contestants.find(
-            item =>
-              item.id ===
-              button.dataset.edit
-          );
+          const contestant =
+            contestants.find(
+              item =>
+                item.id ===
+                button.dataset.edit
+            );
 
 
-        if (contestant) {
-
-          openEdit(contestant);
+          if (contestant) {
+            openEdit(contestant);
+          }
 
         }
-
-      };
+      );
 
     }
   );
 
+
+  /* Publish */
 
   $$("[data-pub]").forEach(
     button => {
 
-      button.onclick = async () => {
+      button.addEventListener(
+        "click",
+        async () => {
 
-        const contestant =
-          contestants.find(
-            item =>
-              item.id ===
-              button.dataset.pub
+          const contestant =
+            contestants.find(
+              item =>
+                item.id ===
+                button.dataset.pub
+            );
+
+
+          if (!contestant) {
+            return;
+          }
+
+
+          const newPublished =
+            contestant.published === false;
+
+
+          await updateDoc(
+            doc(
+              db,
+              "contestants",
+              contestant.id
+            ),
+            {
+              published:
+                newPublished,
+
+              updatedAt:
+                serverTimestamp()
+            }
           );
 
 
-        if (!contestant) {
-          return;
+          await audit(
+            `${
+              newPublished
+                ? "Published"
+                : "Unpublished"
+            } contestant: ${
+              contestant.name
+            }`
+          );
+
         }
-
-
-        await updateDoc(
-          doc(
-            db,
-            "contestants",
-            contestant.id
-          ),
-          {
-            published:
-              contestant.published === false,
-
-            updatedAt:
-              serverTimestamp()
-          }
-        );
-
-
-        await audit(
-          `${
-            contestant.published === false
-              ? "Published"
-              : "Unpublished"
-          } contestant: ${
-            contestant.name
-          }`
-        );
-
-      };
+      );
 
     }
   );
 
 
+  /* Delete */
+
   $$("[data-del]").forEach(
     button => {
 
-      button.onclick = async () => {
+      button.addEventListener(
+        "click",
+        async () => {
 
-        const contestant =
-          contestants.find(
-            item =>
-              item.id ===
-              button.dataset.del
-          );
-
-
-        if (!contestant) {
-          return;
-        }
+          const contestant =
+            contestants.find(
+              item =>
+                item.id ===
+                button.dataset.del
+            );
 
 
-        if (
-          confirm(
-            `Delete ${contestant.name}? This removes the contestant record.`
-          )
-        ) {
+          if (!contestant) {
+            return;
+          }
+
+
+          const confirmed =
+            confirm(
+              `Delete ${contestant.name}? This removes the contestant record.`
+            );
+
+
+          if (!confirmed) {
+            return;
+          }
+
 
           await deleteDoc(
             doc(
@@ -982,25 +953,24 @@ function render() {
 
 
           await audit(
-            `Deleted contestant: ${contestant.name}`
+            `Deleted contestant: ${
+              contestant.name
+            }`
           );
 
         }
-
-      };
+      );
 
     }
   );
 
 
-  /* =======================================================
-     STATS
-  ====================================================== */
+  /* Dashboard statistics */
 
   const totalVotes =
     contestants.reduce(
-      (total, contestant) =>
-        total +
+      (sum, contestant) =>
+        sum +
         Number(
           contestant.votes || 0
         ),
@@ -1008,150 +978,177 @@ function render() {
     );
 
 
-  $("#sc").textContent =
-    contestants.length.toLocaleString();
+  if ($("#sc")) {
+    $("#sc").textContent =
+      contestants.length.toLocaleString();
+  }
 
 
-  $("#sv").textContent =
-    totalVotes.toLocaleString();
+  if ($("#sv")) {
+    $("#sv").textContent =
+      totalVotes.toLocaleString();
+  }
 
 
-  $("#sr").textContent =
-    `₦${(
+  if ($("#sr")) {
+
+    const revenue =
       totalVotes *
       Number(
         settings.votePrice || 100
-      )
-    ).toLocaleString()}`;
-
-
-  $("#ss").textContent =
-    settings.votingOpen
-      ? "OPEN"
-      : "CLOSED";
-
-
-  $("#statusHint").textContent =
-    settings.votingOpen
-      ? "Voters can vote"
-      : "Voting is currently closed";
-
-
-  $("#headerStatus").textContent =
-    settings.votingOpen
-      ? "Voting open"
-      : "Voting closed";
-
-
-  /* =======================================================
-     RESULTS
-  ====================================================== */
-
-  const ranked =
-    contestants
-      .slice()
-      .sort(
-        (a, b) =>
-          Number(b.votes || 0) -
-          Number(a.votes || 0)
       );
 
 
-  $("#result").innerHTML =
-    ranked
-      .map(
-        (contestant, index) => `
-          <tr>
+    $("#sr").textContent =
+      `₦${revenue.toLocaleString()}`;
+  }
 
-            <td>
-              <strong>
+
+  if ($("#ss")) {
+    $("#ss").textContent =
+      settings.votingOpen
+        ? "OPEN"
+        : "CLOSED";
+  }
+
+
+  if ($("#statusHint")) {
+    $("#statusHint").textContent =
+      settings.votingOpen
+        ? "Voters can vote"
+        : "Voting is currently closed";
+  }
+
+
+  if ($("#headerStatus")) {
+    $("#headerStatus").textContent =
+      settings.votingOpen
+        ? "Voting open"
+        : "Voting closed";
+  }
+
+
+  /* Results */
+
+  const ranked =
+    [...contestants].sort(
+      (a, b) =>
+        Number(b.votes || 0) -
+        Number(a.votes || 0)
+    );
+
+
+  if ($("#result")) {
+
+    $("#result").innerHTML =
+      ranked
+        .map(
+          (contestant, index) => `
+            <tr>
+
+              <td>
+                <strong>
+                  #${index + 1}
+                </strong>
+              </td>
+
+              <td>
+                ${esc(
+                  contestant.name ||
+                  "Unnamed"
+                )}
+              </td>
+
+              <td>
+                ${esc(
+                  contestant.category ||
+                  ""
+                )}
+              </td>
+
+              <td>
+                <strong>
+                  ${Number(
+                    contestant.votes || 0
+                  ).toLocaleString()}
+                </strong>
+              </td>
+
+            </tr>
+          `
+        )
+        .join("") ||
+      `
+        <tr>
+          <td colspan="4">
+            No contestants yet.
+          </td>
+        </tr>
+      `;
+  }
+
+
+  /* Top contestants */
+
+  if ($("#topContestants")) {
+
+    $("#topContestants").innerHTML =
+      ranked
+        .slice(0, 5)
+        .map(
+          (contestant, index) => `
+            <div class="top-row">
+
+              <span class="rank">
                 #${index + 1}
-              </strong>
-            </td>
+              </span>
 
-            <td>
-              ${escapeHTML(
-                contestant.name
-              )}
-            </td>
+              <div>
 
-            <td>
-              ${escapeHTML(
-                contestant.category
-              )}
-            </td>
+                <strong>
+                  ${esc(
+                    contestant.name ||
+                    "Unnamed"
+                  )}
+                </strong>
 
-            <td>
+                <small>
+                  ${esc(
+                    contestant.category ||
+                    ""
+                  )}
+                </small>
+
+              </div>
+
               <strong>
                 ${Number(
                   contestant.votes || 0
                 ).toLocaleString()}
               </strong>
-            </td>
-
-          </tr>
-        `
-      )
-      .join("") ||
-    `
-      <tr>
-        <td colspan="4">
-          No contestants yet.
-        </td>
-      </tr>
-    `;
-
-
-  $("#topContestants").innerHTML =
-    ranked
-      .slice(0, 5)
-      .map(
-        (contestant, index) => `
-          <div class="top-row">
-
-            <span class="rank">
-              #${index + 1}
-            </span>
-
-            <div>
-
-              <strong>
-                ${escapeHTML(
-                  contestant.name
-                )}
-              </strong>
-
-              <small>
-                ${escapeHTML(
-                  contestant.category
-                )}
-              </small>
 
             </div>
-
-            <strong>
-              ${Number(
-                contestant.votes || 0
-              ).toLocaleString()}
-            </strong>
-
-          </div>
-        `
-      )
-      .join("") ||
-    "No contestants yet.";
+          `
+        )
+        .join("") ||
+      "No contestants yet.";
+  }
 
 
   renderCategories();
-
 }
 
 
 /* =========================================================
-   VOTING STATE
+   VOTING STATUS
 ========================================================= */
 
 function renderVotingState() {
+
+  if (!$("#votingStateCard")) {
+    return;
+  }
+
 
   const open =
     !!settings.votingOpen;
@@ -1159,9 +1156,7 @@ function renderVotingState() {
 
   $("#votingStateCard").className =
     `voting-state ${
-      open
-        ? "open"
-        : "closed"
+      open ? "open" : "closed"
     }`;
 
 
@@ -1177,11 +1172,13 @@ function renderVotingState() {
       : "The public voting page should not accept votes.";
 
 
-  $("#toggle").textContent =
-    open
-      ? "Close voting"
-      : "Open voting";
+  if ($("#toggle")) {
 
+    $("#toggle").textContent =
+      open
+        ? "Close voting"
+        : "Open voting";
+  }
 }
 
 
@@ -1209,27 +1206,31 @@ async function audit(message) {
       }
     );
 
+  } catch (error) {
+
+    console.warn(
+      "Audit log failed:",
+      error
+    );
+
   }
-
-  catch {
-
-    // Activity logging must not
-    // stop the admin operation.
-
-  }
-
 }
 
 
 /* =========================================================
-   CONTESTANT MODAL
+   EDIT / ADD CONTESTANT
 ========================================================= */
 
-function openEdit(contestant) {
+function openEdit(contestant = null) {
 
-  $("#modal")
-    .classList
-    .remove("hidden");
+  if (!$("#modal")) {
+    return;
+  }
+
+
+  $("#modal").classList.remove(
+    "hidden"
+  );
 
 
   $("#mt").textContent =
@@ -1276,460 +1277,513 @@ function openEdit(contestant) {
     contestant?.photo
       ? `
         <img
-          src="${escapeHTML(
-            contestant.photo
-          )}"
-          alt="Current contestant photo"
+          src="${esc(contestant.photo)}"
+          alt="Current photo"
         >
       `
       : "";
 
 
   $("#photo").value = "";
-
 }
 
 
 /* =========================================================
-   MODAL CLOSE
+   CLOSE MODAL
 ========================================================= */
 
 function closeModal() {
 
-  $("#modal")
-    .classList
-    .add("hidden");
+  if ($("#modal")) {
 
+    $("#modal").classList.add(
+      "hidden"
+    );
+
+  }
 }
 
 
-$("#add").onclick =
-  () => openEdit();
+if ($("#add")) {
+  $("#add").addEventListener(
+    "click",
+    () => openEdit()
+  );
+}
 
 
-$("#x").onclick =
-  closeModal;
+if ($("#x")) {
+  $("#x").addEventListener(
+    "click",
+    closeModal
+  );
+}
 
 
-$("#cancel").onclick =
-  closeModal;
+if ($("#cancel")) {
+  $("#cancel").addEventListener(
+    "click",
+    closeModal
+  );
+}
 
 
-$("#modal").addEventListener(
-  "click",
-  event => {
+if ($("#modal")) {
 
-    if (
-      event.target.id ===
-      "modal"
-    ) {
+  $("#modal").addEventListener(
+    "click",
+    event => {
 
-      closeModal();
+      if (
+        event.target.id ===
+        "modal"
+      ) {
+        closeModal();
+      }
 
     }
-
-  }
-);
+  );
+}
 
 
 /* =========================================================
-   FILTERS
+   SEARCH / FILTERS
 ========================================================= */
 
-$("#search").oninput =
-  render;
+if ($("#search")) {
+  $("#search").addEventListener(
+    "input",
+    render
+  );
+}
 
 
-$("#filter").onchange =
-  render;
+if ($("#filter")) {
+  $("#filter").addEventListener(
+    "change",
+    render
+  );
+}
 
 
-$("#state").onchange =
-  render;
+if ($("#state")) {
+  $("#state").addEventListener(
+    "change",
+    render
+  );
+}
 
 
 /* =========================================================
    VOTING TOGGLE
 ========================================================= */
 
-$("#toggle").onclick =
-  async () => {
+if ($("#toggle")) {
 
-    settings.votingOpen =
-      !settings.votingOpen;
+  $("#toggle").addEventListener(
+    "click",
+    async () => {
 
-
-    await setDoc(
-      doc(
-        db,
-        "settings",
-        "voting"
-      ),
-      {
-        votingOpen:
-          settings.votingOpen,
-
-        votePrice:
-          Number(
-            settings.votePrice ||
-            100
-          ),
-
-        updatedAt:
-          serverTimestamp()
-
-      },
-      {
-        merge: true
-      }
-    );
+      const newState =
+        !settings.votingOpen;
 
 
-    await audit(
-      `Voting ${
-        settings.votingOpen
-          ? "opened"
-          : "closed"
-      }`
-    );
+      await setDoc(
+        doc(
+          db,
+          "settings",
+          "voting"
+        ),
+        {
+          votingOpen:
+            newState,
 
-  };
+          votePrice:
+            Number(
+              settings.votePrice || 100
+            ),
+
+          updatedAt:
+            serverTimestamp()
+        },
+        {
+          merge: true
+        }
+      );
+
+
+      await audit(
+        `Voting ${
+          newState
+            ? "opened"
+            : "closed"
+        }`
+      );
+
+    }
+  );
+}
 
 
 /* =========================================================
    SAVE VOTE PRICE
 ========================================================= */
 
-$("#save").onclick =
-  async () => {
+if ($("#save")) {
 
-    const price =
-      Math.max(
-        1,
-        Number(
-          $("#vp").value
-        ) || 100
+  $("#save").addEventListener(
+    "click",
+    async () => {
+
+      const price =
+        Math.max(
+          1,
+          Number(
+            $("#vp").value
+          ) || 100
+        );
+
+
+      settings.votePrice =
+        price;
+
+
+      await setDoc(
+        doc(
+          db,
+          "settings",
+          "voting"
+        ),
+        {
+          votePrice:
+            price,
+
+          votingOpen:
+            !!settings.votingOpen,
+
+          updatedAt:
+            serverTimestamp()
+        },
+        {
+          merge: true
+        }
       );
 
 
-    settings.votePrice =
-      price;
-
-
-    await setDoc(
-      doc(
-        db,
-        "settings",
-        "voting"
-      ),
-      {
-        votePrice:
-          price,
-
-        votingOpen:
-          !!settings.votingOpen,
-
-        updatedAt:
-          serverTimestamp()
-
-      },
-      {
-        merge: true
-      }
-    );
-
-
-    await audit(
-      `Vote price updated to ₦${price.toLocaleString()}`
-    );
-
-
-    alert(
-      "Voting price saved."
-    );
-
-  };
-
-
-/* =========================================================
-   CONTESTANT SAVE
-========================================================= */
-
-$("#form").onsubmit =
-  async event => {
-
-    event.preventDefault();
-
-
-    try {
-
-      const old =
-        contestants.find(
-          contestant =>
-            contestant.id ===
-            $("#eid").value
-        );
-
-
-      let photoUrl =
-        old?.photo || "";
-
-
-      const file =
-        $("#photo").files[0];
-
-
-      if (file) {
-
-        if (
-          !CLOUDINARY_CLOUD_NAME ||
-          !CLOUDINARY_UPLOAD_PRESET
-        ) {
-
-          throw new Error(
-            "Cloudinary settings are missing from js/config.js."
-          );
-
-        }
-
-
-        const formData =
-          new FormData();
-
-
-        formData.append(
-          "file",
-          file
-        );
-
-
-        formData.append(
-          "upload_preset",
-          CLOUDINARY_UPLOAD_PRESET
-        );
-
-
-        const response =
-          await fetch(
-            `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-            {
-              method: "POST",
-              body: formData
-            }
-          );
-
-
-        if (!response.ok) {
-
-          throw new Error(
-            "Image upload failed."
-          );
-
-        }
-
-
-        const uploaded =
-          await response.json();
-
-
-        photoUrl =
-          uploaded.secure_url;
-
-      }
-
-
-      const id =
-        $("#cid").value.trim();
-
-
-      if (!id) {
-
-        throw new Error(
-          "Contestant ID is required."
-        );
-
-      }
-
-
-      const data = {
-
-        name:
-          $("#name").value.trim(),
-
-        category:
-          $("#cat").value,
-
-        nickname:
-          $("#nick").value.trim(),
-
-        bio:
-          $("#bio").value.trim(),
-
-        photo:
-          photoUrl,
-
-        published:
-          $("#pub").checked,
-
-        updatedAt:
-          serverTimestamp()
-
-      };
-
-
-      if (old) {
-
-        /*
-         * IMPORTANT:
-         * Do not modify votes here.
-         */
-
-        await setDoc(
-          doc(
-            db,
-            "contestants",
-            old.id
-          ),
-          data,
-          {
-            merge: true
-          }
-        );
-
-
-        await audit(
-          `Updated contestant: ${data.name}`
-        );
-
-      }
-
-      else {
-
-        await setDoc(
-          doc(
-            db,
-            "contestants",
-            id
-          ),
-          {
-            ...data,
-            id,
-            votes: 0,
-            createdAt:
-              serverTimestamp()
-          }
-        );
-
-
-        await audit(
-          `Added contestant: ${data.name}`
-        );
-
-      }
-
-
-      closeModal();
-
-    }
-
-    catch (error) {
-
-      console.error(
-        "Contestant save error:",
-        error
+      await audit(
+        `Vote price updated to ₦${price.toLocaleString()}`
       );
 
 
       alert(
-        error.message ||
-        "Unable to save contestant."
+        "Voting price saved."
       );
+    }
+  );
+}
+
+
+/* =========================================================
+   SAVE CONTESTANT
+========================================================= */
+
+if ($("#form")) {
+
+  $("#form").addEventListener(
+    "submit",
+    async event => {
+
+      event.preventDefault();
+
+
+      try {
+
+        const oldContestant =
+          contestants.find(
+            contestant =>
+              contestant.id ===
+              $("#eid").value
+          );
+
+
+        let photoUrl =
+          oldContestant?.photo ||
+          "";
+
+
+        const file =
+          $("#photo").files[0];
+
+
+        /* Upload photo */
+
+        if (file) {
+
+          if (
+            !CLOUDINARY_CLOUD_NAME ||
+            !CLOUDINARY_UPLOAD_PRESET
+          ) {
+
+            throw new Error(
+              "Cloudinary settings are missing from js/config.js."
+            );
+
+          }
+
+
+          const formData =
+            new FormData();
+
+
+          formData.append(
+            "file",
+            file
+          );
+
+
+          formData.append(
+            "upload_preset",
+            CLOUDINARY_UPLOAD_PRESET
+          );
+
+
+          const response =
+            await fetch(
+              `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+              {
+                method: "POST",
+                body: formData
+              }
+            );
+
+
+          if (!response.ok) {
+            throw new Error(
+              "Image upload failed."
+            );
+          }
+
+
+          const uploaded =
+            await response.json();
+
+
+          photoUrl =
+            uploaded.secure_url;
+        }
+
+
+        const id =
+          $("#cid").value.trim();
+
+
+        if (!id) {
+
+          throw new Error(
+            "Contestant ID is required."
+          );
+        }
+
+
+        const data = {
+
+          name:
+            $("#name").value.trim(),
+
+          category:
+            $("#cat").value,
+
+          nickname:
+            $("#nick").value.trim(),
+
+          bio:
+            $("#bio").value.trim(),
+
+          photo:
+            photoUrl,
+
+          published:
+            $("#pub").checked,
+
+          updatedAt:
+            serverTimestamp()
+        };
+
+
+        if (!data.name) {
+
+          throw new Error(
+            "Contestant name is required."
+          );
+        }
+
+
+        /* Existing contestant */
+
+        if (oldContestant) {
+
+          await setDoc(
+            doc(
+              db,
+              "contestants",
+              oldContestant.id
+            ),
+            data,
+            {
+              merge: true
+            }
+          );
+
+
+          await audit(
+            `Updated contestant: ${
+              data.name
+            }`
+          );
+
+        }
+
+
+        /* New contestant */
+
+        else {
+
+          await setDoc(
+            doc(
+              db,
+              "contestants",
+              id
+            ),
+            {
+              ...data,
+
+              id,
+
+              votes: 0,
+
+              createdAt:
+                serverTimestamp()
+            }
+          );
+
+
+          await audit(
+            `Added contestant: ${
+              data.name
+            }`
+          );
+        }
+
+
+        closeModal();
+
+      } catch (error) {
+
+        console.error(
+          "Save contestant error:",
+          error
+        );
+
+
+        alert(
+          error.message ||
+          "Unable to save contestant."
+        );
+      }
 
     }
-
-  };
+  );
+}
 
 
 /* =========================================================
    EXPORT RESULTS
 ========================================================= */
 
-$("#export").onclick =
-  () => {
+if ($("#export")) {
 
-    const ranked =
-      contestants
-        .slice()
-        .sort(
+  $("#export").addEventListener(
+    "click",
+    () => {
+
+      const ranked =
+        [...contestants].sort(
           (a, b) =>
             Number(b.votes || 0) -
             Number(a.votes || 0)
         );
 
 
-    const rows = [
-      [
-        "Rank",
-        "Name",
-        "Category",
-        "Votes"
-      ],
+      const rows = [
+        [
+          "Rank",
+          "Name",
+          "Category",
+          "Votes"
+        ],
 
-      ...ranked.map(
-        (contestant, index) => [
-          index + 1,
-          contestant.name,
-          contestant.category,
-          contestant.votes || 0
-        ]
-      )
-    ];
-
-
-    const csv =
-      rows
-        .map(
-          row =>
-            row
-              .map(
-                value =>
-                  `"${String(
-                    value ?? ""
-                  ).replaceAll(
-                    '"',
-                    '""'
-                  )}"`
-              )
-              .join(",")
+        ...ranked.map(
+          (contestant, index) => [
+            index + 1,
+            contestant.name,
+            contestant.category,
+            contestant.votes || 0
+          ]
         )
-        .join("\n");
+      ];
 
 
-    const link =
-      document.createElement("a");
+      const csv =
+        rows
+          .map(
+            row =>
+              row
+                .map(
+                  value =>
+                    `"${String(value)
+                      .replaceAll(
+                        '"',
+                        '""'
+                      )}"`
+                )
+                .join(",")
+          )
+          .join("\n");
 
 
-    link.href =
-      URL.createObjectURL(
+      const blob =
         new Blob(
           [csv],
           {
             type:
-              "text/csv;charset=utf-8"
+              "text/csv;charset=utf-8;"
           }
-        )
+        );
+
+
+      const url =
+        URL.createObjectURL(
+          blob
+        );
+
+
+      const link =
+        document.createElement(
+          "a"
+        );
+
+
+      link.href = url;
+
+      link.download =
+        "napas-results.csv";
+
+      link.click();
+
+
+      URL.revokeObjectURL(
+        url
       );
-
-
-    link.download =
-      "napas-results.csv";
-
-
-    link.click();
-
-
-    URL.revokeObjectURL(
-      link.href
-    );
-
-  };
+    }
+  );
+}
