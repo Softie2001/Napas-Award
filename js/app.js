@@ -54,7 +54,7 @@ function renderCategories(){
   $("#categoryGrid").innerHTML=list.map(c=>{
     const count=contestants.filter(x=>categoryName(x)===c).length;
     return `<a class="category-card" href="#voting" data-category-link="${esc(c)}">
-      <span><i class="category-icon">🏆</i><span><strong>${esc(c)}</strong><small>${count} nominee${count===1?"":"s"}</small></span></span>
+      <span><i class="category"></i><span><strong>${esc(c)}</strong><small>${count} nominee${count===1?"":"s"}</small></span></span>
       <span class="category-arrow">›</span>
     </a>`;
   }).join("");
