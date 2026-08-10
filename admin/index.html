@@ -3,130 +3,1003 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+
   <title>NAPAS Admin Portal</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+
   <link rel="stylesheet" href="admin.css">
 </head>
+
 <body>
+
+  <!-- =====================================================
+       LOGIN
+  ====================================================== -->
+
   <div id="login" class="login-screen">
+
     <div class="login-card">
-      <div class="brand-mark"><img src="../assets/napas-logo.jpeg" alt="NAPAS"></div>
-      <span class="eyebrow">NAPAS DINNER & AWARD NIGHT</span>
+
+      <div class="brand-mark">
+        <img
+          src="../assets/napas-logo.jpeg"
+          alt="NAPAS"
+        >
+      </div>
+
+      <span class="eyebrow">
+        NAPAS DINNER & AWARD NIGHT
+      </span>
+
       <h1>Admin Portal</h1>
-      <p>Sign in to manage contestants, voting settings and live results.</p>
-      <form id="loginForm">
-        <label>Email<input id="email" type="email" value="quadrisubomi@gmail.com" autocomplete="username" required></label>
-        <label>Password<input id="password" type="password" placeholder="Enter your password" autocomplete="current-password" required></label>
-        <button class="primary full" type="submit">Sign in securely</button>
-        <div id="error" class="error" role="alert"></div>
+
+      <p>
+        Sign in to manage contestants, voting settings
+        and live results.
+      </p>
+
+      <form id="loginForm" autocomplete="on">
+
+        <label for="email">
+          Email
+
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="username"
+            placeholder="Enter admin email"
+            required
+          >
+        </label>
+
+        <label for="password">
+          Password
+
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Enter your password"
+            required
+          >
+        </label>
+
+        <button
+          id="loginButton"
+          class="primary full"
+          type="submit"
+        >
+          Sign in securely
+        </button>
+
+        <div
+          id="error"
+          class="error"
+          role="alert"
+        ></div>
+
       </form>
+
     </div>
+
   </div>
+
+
+  <!-- =====================================================
+       ADMIN APPLICATION
+  ====================================================== -->
 
   <div id="app" class="app hidden">
+
+    <!-- SIDEBAR -->
+
     <aside id="sidebar" class="sidebar">
+
       <div class="brand">
-        <img src="../assets/napas-logo.jpeg" alt="NAPAS">
-        <div><strong>NAPAS</strong><span>Admin Portal</span></div>
+
+        <img
+          src="../assets/napas-logo.jpeg"
+          alt="NAPAS"
+        >
+
+        <div>
+          <strong>NAPAS</strong>
+          <span>Admin Portal</span>
+        </div>
+
       </div>
+
+
       <nav>
-        <button class="nav-item active" data-page="dashboard"><span>⌂</span>Dashboard</button>
-        <button class="nav-item" data-page="contestants"><span>♙</span>Contestants</button>
-        <button class="nav-item" data-page="categories"><span>◈</span>Categories</button>
-        <button class="nav-item" data-page="voting"><span>◉</span>Voting</button>
-        <button class="nav-item" data-page="results"><span>♛</span>Results</button>
-        <button class="nav-item" data-page="activity"><span>↗</span>Activity</button>
+
+        <button
+          class="nav-item active"
+          data-page="dashboard"
+          type="button"
+        >
+          <span>⌂</span>
+          Dashboard
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="contestants"
+          type="button"
+        >
+          <span>♙</span>
+          Contestants
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="categories"
+          type="button"
+        >
+          <span>◈</span>
+          Categories
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="voting"
+          type="button"
+        >
+          <span>◉</span>
+          Voting
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="results"
+          type="button"
+        >
+          <span>♛</span>
+          Results
+        </button>
+
+        <button
+          class="nav-item"
+          data-page="activity"
+          type="button"
+        >
+          <span>↗</span>
+          Activity
+        </button>
+
       </nav>
+
+
       <div class="sidebar-bottom">
-        <div class="admin-user"><span class="avatar">A</span><div><strong>Administrator</strong><small id="who"></small></div></div>
-        <button id="logout" class="signout">Sign out</button>
+
+        <div class="admin-user">
+
+          <span class="avatar">
+            A
+          </span>
+
+          <div>
+            <strong>Administrator</strong>
+            <small id="who"></small>
+          </div>
+
+        </div>
+
+        <button
+          id="logout"
+          class="signout"
+          type="button"
+        >
+          Sign out
+        </button>
+
       </div>
+
     </aside>
 
+
+    <!-- MAIN -->
+
     <main class="main">
+
       <header class="topbar">
-        <button id="menu" class="icon-btn" aria-label="Open menu">☰</button>
-        <div><span class="eyebrow">NAPAS DINNER & AWARD NIGHT 2026</span><h2 id="title">Dashboard</h2></div>
-        <div class="top-status"><span class="status-dot"></span><span id="headerStatus">Voting open</span></div>
+
+        <button
+          id="menu"
+          class="icon-btn"
+          type="button"
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+
+        <div>
+
+          <span class="eyebrow">
+            NAPAS DINNER & AWARD NIGHT 2026
+          </span>
+
+          <h2 id="title">
+            Dashboard
+          </h2>
+
+        </div>
+
+        <div class="top-status">
+
+          <span class="status-dot"></span>
+
+          <span id="headerStatus">
+            Voting open
+          </span>
+
+        </div>
+
       </header>
 
-      <section id="dashboard" class="page active">
+
+      <!-- =================================================
+           DASHBOARD
+      ================================================== -->
+
+      <section
+        id="dashboard"
+        class="page active"
+      >
+
         <div class="hero">
-          <div><span class="eyebrow light">LIVE ADMIN OVERVIEW</span><h1>Manage the awards<br><span>with confidence.</span></h1><p>Monitor contestants, votes, revenue and voting status from one place.</p></div>
-          <div class="hero-art"><img src="../assets/napas-logo.jpeg" alt=""></div>
+
+          <div>
+
+            <span class="eyebrow light">
+              LIVE ADMIN OVERVIEW
+            </span>
+
+            <h1>
+              Manage the awards
+              <br>
+              <span>with confidence.</span>
+            </h1>
+
+            <p>
+              Monitor contestants, votes, revenue
+              and voting status from one place.
+            </p>
+
+          </div>
+
+          <div class="hero-art">
+
+            <img
+              src="../assets/napas-logo.jpeg"
+              alt=""
+            >
+
+          </div>
+
         </div>
+
+
         <div class="stats">
-          <article class="stat-card"><span class="stat-icon purple">♙</span><small>Contestants</small><strong id="sc">0</strong><em>Registered nominees</em></article>
-          <article class="stat-card"><span class="stat-icon gold">♛</span><small>Total votes</small><strong id="sv">0</strong><em>Verified votes</em></article>
-          <article class="stat-card"><span class="stat-icon green">₦</span><small>Estimated revenue</small><strong id="sr">₦0</strong><em>Based on vote price</em></article>
-          <article class="stat-card"><span class="stat-icon rose">●</span><small>Voting status</small><strong id="ss">OPEN</strong><em id="statusHint">Voters can vote</em></article>
+
+          <article class="stat-card">
+
+            <span class="stat-icon purple">
+              ♙
+            </span>
+
+            <small>Contestants</small>
+
+            <strong id="sc">
+              0
+            </strong>
+
+            <em>
+              Registered nominees
+            </em>
+
+          </article>
+
+
+          <article class="stat-card">
+
+            <span class="stat-icon gold">
+              ♛
+            </span>
+
+            <small>Total votes</small>
+
+            <strong id="sv">
+              0
+            </strong>
+
+            <em>
+              Verified votes
+            </em>
+
+          </article>
+
+
+          <article class="stat-card">
+
+            <span class="stat-icon green">
+              ₦
+            </span>
+
+            <small>
+              Estimated revenue
+            </small>
+
+            <strong id="sr">
+              ₦0
+            </strong>
+
+            <em>
+              Based on vote price
+            </em>
+
+          </article>
+
+
+          <article class="stat-card">
+
+            <span class="stat-icon rose">
+              ●
+            </span>
+
+            <small>
+              Voting status
+            </small>
+
+            <strong id="ss">
+              OPEN
+            </strong>
+
+            <em id="statusHint">
+              Voters can vote
+            </em>
+
+          </article>
+
         </div>
+
+
         <div class="dashboard-grid">
-          <div class="panel"><div class="panel-head"><div><h3>Top contestants</h3><p>Current live ranking.</p></div><button class="text-btn" data-page-jump="results">View all →</button></div><div id="topContestants" class="top-list"></div></div>
-          <div class="panel"><div class="panel-head"><div><h3>Quick actions</h3><p>Common admin tasks.</p></div></div><div class="quick-actions"><button data-page-jump="contestants">＋ Add contestant</button><button data-page-jump="voting">⚙ Voting settings</button><button data-page-jump="results">♛ View results</button></div></div>
+
+          <div class="panel">
+
+            <div class="panel-head">
+
+              <div>
+
+                <h3>
+                  Top contestants
+                </h3>
+
+                <p>
+                  Current live ranking.
+                </p>
+
+              </div>
+
+              <button
+                class="text-btn"
+                data-page-jump="results"
+                type="button"
+              >
+                View all →
+              </button>
+
+            </div>
+
+            <div
+              id="topContestants"
+              class="top-list"
+            ></div>
+
+          </div>
+
+
+          <div class="panel">
+
+            <div class="panel-head">
+
+              <div>
+
+                <h3>
+                  Quick actions
+                </h3>
+
+                <p>
+                  Common admin tasks.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div class="quick-actions">
+
+              <button
+                data-page-jump="contestants"
+                type="button"
+              >
+                ＋ Add contestant
+              </button>
+
+              <button
+                data-page-jump="voting"
+                type="button"
+              >
+                ⚙ Voting settings
+              </button>
+
+              <button
+                data-page-jump="results"
+                type="button"
+              >
+                ♛ View results
+              </button>
+
+            </div>
+
+          </div>
+
         </div>
+
       </section>
 
-      <section id="contestants" class="page">
-        <div class="page-head"><div><span class="eyebrow">AWARD MANAGEMENT</span><h2>Contestants</h2><p>Add, edit, publish and monitor nominees.</p></div><button id="add" class="primary">＋ Add contestant</button></div>
+
+      <!-- =================================================
+           CONTESTANTS
+      ================================================== -->
+
+      <section
+        id="contestants"
+        class="page"
+      >
+
+        <div class="page-head">
+
+          <div>
+
+            <span class="eyebrow">
+              AWARD MANAGEMENT
+            </span>
+
+            <h2>
+              Contestants
+            </h2>
+
+            <p>
+              Add, edit, publish and monitor nominees.
+            </p>
+
+          </div>
+
+          <button
+            id="add"
+            class="primary"
+            type="button"
+          >
+            ＋ Add contestant
+          </button>
+
+        </div>
+
+
         <div class="panel">
-          <div class="filters"><input id="search" placeholder="Search contestant name or ID"><select id="filter"></select><select id="state"><option value="">All status</option><option value="yes">Published</option><option value="no">Unpublished</option></select></div>
-          <div class="table-wrap"><table><thead><tr><th>Contestant</th><th>Category</th><th>ID</th><th>Status</th><th>Votes</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table></div>
+
+          <div class="filters">
+
+            <input
+              id="search"
+              type="search"
+              placeholder="Search contestant name or ID"
+            >
+
+            <select id="filter"></select>
+
+            <select id="state">
+
+              <option value="">
+                All status
+              </option>
+
+              <option value="yes">
+                Published
+              </option>
+
+              <option value="no">
+                Unpublished
+              </option>
+
+            </select>
+
+          </div>
+
+
+          <div class="table-wrap">
+
+            <table>
+
+              <thead>
+
+                <tr>
+
+                  <th>Contestant</th>
+                  <th>Category</th>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Votes</th>
+                  <th>Actions</th>
+
+                </tr>
+
+              </thead>
+
+              <tbody id="rows"></tbody>
+
+            </table>
+
+          </div>
+
         </div>
+
       </section>
 
-      <section id="categories" class="page">
-        <div class="page-head"><div><span class="eyebrow">AWARD STRUCTURE</span><h2>Categories</h2><p>Overview of the award categories.</p></div></div>
-        <div id="cats" class="category-grid"></div>
+
+      <!-- =================================================
+           CATEGORIES
+      ================================================== -->
+
+      <section
+        id="categories"
+        class="page"
+      >
+
+        <div class="page-head">
+
+          <div>
+
+            <span class="eyebrow">
+              AWARD STRUCTURE
+            </span>
+
+            <h2>
+              Categories
+            </h2>
+
+            <p>
+              Overview of the award categories.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="cats"
+          class="category-grid"
+        ></div>
+
       </section>
 
-      <section id="voting" class="page">
-        <div class="page-head"><div><span class="eyebrow">VOTING CONTROL</span><h2>Voting settings</h2><p>Control whether voting is open and set the price per vote.</p></div></div>
+
+      <!-- =================================================
+           VOTING
+      ================================================== -->
+
+      <section
+        id="voting"
+        class="page"
+      >
+
+        <div class="page-head">
+
+          <div>
+
+            <span class="eyebrow">
+              VOTING CONTROL
+            </span>
+
+            <h2>
+              Voting settings
+            </h2>
+
+            <p>
+              Control whether voting is open and set
+              the price per vote.
+            </p>
+
+          </div>
+
+        </div>
+
+
         <div class="settings-grid">
-          <div class="panel setting-card"><span class="big-icon">₦</span><h3>Price per vote</h3><p>Amount charged for one vote. Payment calculations on the public site use this setting.</p><label>Vote price<input id="vp" type="number" min="1" step="1"></label><button id="save" class="primary">Save price</button></div>
-          <div class="panel setting-card"><span class="big-icon">◉</span><h3>Voting availability</h3><p>Close voting when the award window ends. The public site will immediately reflect the change.</p><div id="votingStateCard" class="voting-state open"><strong id="votingStateLabel">Voting is OPEN</strong><span id="votingStateDescription">Voters can submit votes.</span></div><button id="toggle" class="secondary">Close voting</button></div>
+
+          <div class="panel setting-card">
+
+            <span class="big-icon">
+              ₦
+            </span>
+
+            <h3>
+              Price per vote
+            </h3>
+
+            <p>
+              Amount charged for one vote.
+              Payment calculations on the public
+              site use this setting.
+            </p>
+
+            <label for="vp">
+
+              Vote price
+
+              <input
+                id="vp"
+                type="number"
+                min="1"
+                step="1"
+              >
+
+            </label>
+
+            <button
+              id="save"
+              class="primary"
+              type="button"
+            >
+              Save price
+            </button>
+
+          </div>
+
+
+          <div class="panel setting-card">
+
+            <span class="big-icon">
+              ◉
+            </span>
+
+            <h3>
+              Voting availability
+            </h3>
+
+            <p>
+              Close voting when the award window
+              ends. The public site will immediately
+              reflect the change.
+            </p>
+
+            <div
+              id="votingStateCard"
+              class="voting-state open"
+            >
+
+              <strong id="votingStateLabel">
+                Voting is OPEN
+              </strong>
+
+              <span id="votingStateDescription">
+                Voters can submit votes.
+              </span>
+
+            </div>
+
+            <button
+              id="toggle"
+              class="secondary"
+              type="button"
+            >
+              Close voting
+            </button>
+
+          </div>
+
         </div>
+
       </section>
 
-      <section id="results" class="page">
-        <div class="page-head"><div><span class="eyebrow">LIVE LEADERBOARD</span><h2>Results</h2><p>Current vote totals from Firebase.</p></div><button id="export" class="secondary">Export CSV</button></div>
-        <div class="panel"><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Contestant</th><th>Category</th><th>Votes</th></tr></thead><tbody id="result"></tbody></table></div></div>
+
+      <!-- =================================================
+           RESULTS
+      ================================================== -->
+
+      <section
+        id="results"
+        class="page"
+      >
+
+        <div class="page-head">
+
+          <div>
+
+            <span class="eyebrow">
+              LIVE LEADERBOARD
+            </span>
+
+            <h2>
+              Results
+            </h2>
+
+            <p>
+              Current vote totals from Firebase.
+            </p>
+
+          </div>
+
+          <button
+            id="export"
+            class="secondary"
+            type="button"
+          >
+            Export CSV
+          </button>
+
+        </div>
+
+
+        <div class="panel">
+
+          <div class="table-wrap">
+
+            <table>
+
+              <thead>
+
+                <tr>
+
+                  <th>Rank</th>
+                  <th>Contestant</th>
+                  <th>Category</th>
+                  <th>Votes</th>
+
+                </tr>
+
+              </thead>
+
+              <tbody id="result"></tbody>
+
+            </table>
+
+          </div>
+
+        </div>
+
       </section>
 
-      <section id="activity" class="page">
-        <div class="page-head"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Activity</h2><p>Recent administrative activity.</p></div></div>
-        <div id="logs" class="panel activity-list"></div>
+
+      <!-- =================================================
+           ACTIVITY
+      ================================================== -->
+
+      <section
+        id="activity"
+        class="page"
+      >
+
+        <div class="page-head">
+
+          <div>
+
+            <span class="eyebrow">
+              AUDIT TRAIL
+            </span>
+
+            <h2>
+              Activity
+            </h2>
+
+            <p>
+              Recent administrative activity.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="logs"
+          class="panel activity-list"
+        ></div>
+
       </section>
+
     </main>
+
   </div>
 
-  <div id="modal" class="modal hidden">
+
+  <!-- =====================================================
+       CONTESTANT MODAL
+  ====================================================== -->
+
+  <div
+    id="modal"
+    class="modal hidden"
+  >
+
     <div class="modal-box">
-      <button id="x" class="close" aria-label="Close">×</button>
-      <span class="eyebrow">CONTESTANT MANAGEMENT</span>
-      <h3 id="mt">Add contestant</h3>
-      <p class="modal-sub">Keep nominee information accurate and readable on the public voting page.</p>
+
+      <button
+        id="x"
+        class="close"
+        type="button"
+        aria-label="Close"
+      >
+        ×
+      </button>
+
+      <span class="eyebrow">
+        CONTESTANT MANAGEMENT
+      </span>
+
+      <h3 id="mt">
+        Add contestant
+      </h3>
+
+      <p class="modal-sub">
+        Keep nominee information accurate and
+        readable on the public voting page.
+      </p>
+
+
       <form id="form">
-        <input id="eid" type="hidden">
+
+        <input
+          id="eid"
+          type="hidden"
+        >
+
+
         <div class="form-grid">
-          <label>Name<input id="name" required></label>
-          <label>Contestant ID<input id="cid" required></label>
+
+          <label for="name">
+
+            Name
+
+            <input
+              id="name"
+              required
+            >
+
+          </label>
+
+
+          <label for="cid">
+
+            Contestant ID
+
+            <input
+              id="cid"
+              required
+            >
+
+          </label>
+
         </div>
-        <label>Category<select id="cat"></select></label>
+
+
+        <label for="cat">
+
+          Category
+
+          <select id="cat"></select>
+
+        </label>
+
+
         <div class="form-grid">
-          <label>Nickname<input id="nick"></label>
-          <label class="check-label"><span>Publication status</span><span class="switch-row"><input id="pub" type="checkbox" checked><span>Published</span></span></label>
+
+          <label for="nick">
+
+            Nickname
+
+            <input id="nick">
+
+          </label>
+
+
+          <label class="check-label">
+
+            <span>
+              Publication status
+            </span>
+
+            <span class="switch-row">
+
+              <input
+                id="pub"
+                type="checkbox"
+                checked
+              >
+
+              <span>
+                Published
+              </span>
+
+            </span>
+
+          </label>
+
         </div>
-        <label>Bio<textarea id="bio" placeholder="Short contestant biography"></textarea></label>
-        <label>Photo<input id="photo" type="file" accept="image/*"></label>
-        <div id="preview" class="preview"></div>
-        <div class="modal-actions"><button type="button" id="cancel" class="secondary">Cancel</button><button class="primary" type="submit">Save contestant</button></div>
+
+
+        <label for="bio">
+
+          Bio
+
+          <textarea
+            id="bio"
+            placeholder="Short contestant biography"
+          ></textarea>
+
+        </label>
+
+
+        <label for="photo">
+
+          Photo
+
+          <input
+            id="photo"
+            type="file"
+            accept="image/*"
+          >
+
+        </label>
+
+
+        <div
+          id="preview"
+          class="preview"
+        ></div>
+
+
+        <div class="modal-actions">
+
+          <button
+            type="button"
+            id="cancel"
+            class="secondary"
+          >
+            Cancel
+          </button>
+
+          <button
+            class="primary"
+            type="submit"
+          >
+            Save contestant
+          </button>
+
+        </div>
+
       </form>
+
     </div>
+
   </div>
 
-  <script type="module" src="admin.js"></script>
+
+  <script
+    type="module"
+    src="admin.js"
+  ></script>
+
 </body>
 </html>
