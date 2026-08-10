@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <title>NAPAS Admin Portal</title>
+  <title>NAPAS Admin Login</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,13 +20,14 @@
 <body>
 
   <!-- =====================================================
-       LOGIN
+       ADMIN LOGIN
   ====================================================== -->
 
   <div id="login" class="login-screen">
 
     <div class="login-card">
 
+      <!-- Logo -->
       <div class="brand-mark">
         <img
           src="../assets/napas-logo.jpeg"
@@ -34,60 +35,109 @@
         >
       </div>
 
-      <span class="eyebrow">
-        NAPAS DINNER & AWARD NIGHT
-      </span>
+      <!-- Heading -->
+      <div class="login-heading">
+        <span class="eyebrow">
+          NAPAS DINNER & AWARD NIGHT 2026
+        </span>
 
-      <h1>Admin Portal</h1>
+        <h1>
+          Admin Portal
+        </h1>
 
-      <p>
-        Sign in to manage contestants, voting settings
-        and live results.
-      </p>
+        <p>
+          Sign in to manage contestants, voting,
+          categories and live results.
+        </p>
+      </div>
 
+      <!-- Login Form -->
       <form id="loginForm" autocomplete="on">
 
-        <label for="email">
-          Email
+        <!-- Email -->
+        <div class="input-group">
+
+          <label for="email">
+            Admin Email
+          </label>
 
           <input
             id="email"
             name="email"
             type="email"
-            autocomplete="username"
             placeholder="Enter admin email"
+            autocomplete="username"
             required
           >
-        </label>
 
-        <label for="password">
-          Password
+        </div>
 
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="Enter your password"
-            required
-          >
-        </label>
 
+        <!-- Password -->
+        <div class="input-group">
+
+          <label for="password">
+            Password
+          </label>
+
+          <div class="password-wrapper">
+
+            <input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            >
+
+            <button
+              type="button"
+              id="togglePassword"
+              class="password-toggle"
+              aria-label="Show password"
+            >
+              Show
+            </button>
+
+          </div>
+
+        </div>
+
+
+        <!-- Error -->
+        <div
+          id="error"
+          class="error"
+          role="alert"
+          aria-live="polite"
+        ></div>
+
+
+        <!-- Login Button -->
         <button
           id="loginButton"
           class="primary full"
           type="submit"
         >
-          Sign in securely
+          <span id="loginButtonText">
+            Sign in securely
+          </span>
         </button>
 
-        <div
-          id="error"
-          class="error"
-          role="alert"
-        ></div>
-
       </form>
+
+
+      <!-- Security note -->
+      <div class="login-security">
+
+        <span class="security-dot"></span>
+
+        <span>
+          Secure administrator access
+        </span>
+
+      </div>
 
     </div>
 
@@ -95,14 +145,22 @@
 
 
   <!-- =====================================================
-       ADMIN APPLICATION
+       ADMIN DASHBOARD
+       
+       IMPORTANT:
+       Your existing admin.js controls whether this
+       dashboard is displayed after successful login.
   ====================================================== -->
 
-  <div id="app" class="app hidden">
+  <div
+    id="app"
+    class="app hidden"
+  >
 
-    <!-- SIDEBAR -->
-
-    <aside id="sidebar" class="sidebar">
+    <aside
+      id="sidebar"
+      class="sidebar"
+    >
 
       <div class="brand">
 
@@ -124,7 +182,6 @@
         <button
           class="nav-item active"
           data-page="dashboard"
-          type="button"
         >
           <span>⌂</span>
           Dashboard
@@ -133,7 +190,6 @@
         <button
           class="nav-item"
           data-page="contestants"
-          type="button"
         >
           <span>♙</span>
           Contestants
@@ -142,7 +198,6 @@
         <button
           class="nav-item"
           data-page="categories"
-          type="button"
         >
           <span>◈</span>
           Categories
@@ -151,7 +206,6 @@
         <button
           class="nav-item"
           data-page="voting"
-          type="button"
         >
           <span>◉</span>
           Voting
@@ -160,7 +214,6 @@
         <button
           class="nav-item"
           data-page="results"
-          type="button"
         >
           <span>♛</span>
           Results
@@ -169,7 +222,6 @@
         <button
           class="nav-item"
           data-page="activity"
-          type="button"
         >
           <span>↗</span>
           Activity
@@ -187,11 +239,15 @@
           </span>
 
           <div>
-            <strong>Administrator</strong>
+            <strong>
+              Administrator
+            </strong>
+
             <small id="who"></small>
           </div>
 
         </div>
+
 
         <button
           id="logout"
@@ -205,8 +261,6 @@
 
     </aside>
 
-
-    <!-- MAIN -->
 
     <main class="main">
 
@@ -232,6 +286,7 @@
           </h2>
 
         </div>
+
 
         <div class="top-status">
 
@@ -276,6 +331,7 @@
 
           </div>
 
+
           <div class="hero-art">
 
             <img
@@ -296,7 +352,9 @@
               ♙
             </span>
 
-            <small>Contestants</small>
+            <small>
+              Contestants
+            </small>
 
             <strong id="sc">
               0
@@ -315,7 +373,9 @@
               ♛
             </span>
 
-            <small>Total votes</small>
+            <small>
+              Total votes
+            </small>
 
             <strong id="sv">
               0
@@ -534,14 +594,12 @@
               <thead>
 
                 <tr>
-
                   <th>Contestant</th>
                   <th>Category</th>
                   <th>ID</th>
                   <th>Status</th>
                   <th>Votes</th>
                   <th>Actions</th>
-
                 </tr>
 
               </thead>
@@ -640,12 +698,11 @@
 
             <p>
               Amount charged for one vote.
-              Payment calculations on the public
-              site use this setting.
+              Payment calculations on the public site
+              use this setting.
             </p>
 
-            <label for="vp">
-
+            <label>
               Vote price
 
               <input
@@ -679,9 +736,9 @@
             </h3>
 
             <p>
-              Close voting when the award window
-              ends. The public site will immediately
-              reflect the change.
+              Close voting when the award window ends.
+              The public site will immediately reflect
+              the change.
             </p>
 
             <div
@@ -761,12 +818,10 @@
               <thead>
 
                 <tr>
-
                   <th>Rank</th>
                   <th>Contestant</th>
                   <th>Category</th>
                   <th>Votes</th>
-
                 </tr>
 
               </thead>
@@ -853,8 +908,8 @@
       </h3>
 
       <p class="modal-sub">
-        Keep nominee information accurate and
-        readable on the public voting page.
+        Keep nominee information accurate and readable
+        on the public voting page.
       </p>
 
 
@@ -868,8 +923,7 @@
 
         <div class="form-grid">
 
-          <label for="name">
-
+          <label>
             Name
 
             <input
@@ -880,8 +934,7 @@
           </label>
 
 
-          <label for="cid">
-
+          <label>
             Contestant ID
 
             <input
@@ -894,7 +947,7 @@
         </div>
 
 
-        <label for="cat">
+        <label>
 
           Category
 
@@ -905,7 +958,7 @@
 
         <div class="form-grid">
 
-          <label for="nick">
+          <label>
 
             Nickname
 
@@ -939,7 +992,7 @@
         </div>
 
 
-        <label for="bio">
+        <label>
 
           Bio
 
@@ -951,7 +1004,7 @@
         </label>
 
 
-        <label for="photo">
+        <label>
 
           Photo
 
@@ -995,6 +1048,10 @@
 
   </div>
 
+
+  <!-- =====================================================
+       ADMIN JAVASCRIPT
+  ====================================================== -->
 
   <script
     type="module"
