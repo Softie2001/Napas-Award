@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email == "quadrisubomi@gmail.com";
+    }
+
+    match /contestants/{contestantId} {
+      // Public users can only see published contestants.
+      allow read: if isAdmin() || (
+        resource.data.published == true
+      );
+
+      // Contestants may be created/edited/deleted only by the admin.
+      // Vote totals cannot be changed from the browser/admin portal.
+      allow create: if isAdmin()
+        && request.resource.data.votes == 0;
+
+      allow update: if isAdmin()
+        && request.resource.data.votes == resource.data.votes;
+
+      allow delete: if isAdmin();
+    }
+
+    match /settings/voting {
+      // The public voting page needs to know whether voting is open
+      // and the current vote price.
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /adminActivity/{activityId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Payment records are server-side only.
+    // The Cloudflare Worker uses Firebase Admin SDK and therefore
+    // does not depend on these client-side Firestore rules.
+    match /payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
