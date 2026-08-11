@@ -43,7 +43,7 @@ const FALLBACK_CATEGORIES = [
   "Content Creator of the Year",
   "Most Popular Student",
   "Ambassador of the Year",
-  "Best Graphics Designer of the Year",
+  "Techie of the Year",
   "Entrepreneur of the Year",
   "Best Clerk of the Year",
   "Best Assistant Governor of the Year",
