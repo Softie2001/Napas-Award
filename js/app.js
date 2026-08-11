@@ -66,6 +66,8 @@ const FALLBACK_CATEGORIES = [
   "Miss Ebony",
   "Most Outspoken",
   "Coach of the Year",
+  "Face of Accountancy",
+  "Mrs Accountancy",
   "Blogger of the Year",
   "Brand of the Year"
 ];
