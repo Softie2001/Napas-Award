@@ -1,4 +1,6 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import {
+  initializeApp
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 
 import {
   getFirestore,
@@ -13,19 +15,17 @@ import {
   EVENT_TIME
 } from "./config.js";
 
+
 /* =========================================================
    FIREBASE
 ========================================================= */
 
-const app = initializeApp(FIREBASE_CONFIG);
-const db = getFirestore(app);
+const app =
+  initializeApp(FIREBASE_CONFIG);
 
-/* =========================================================
-   NAPAS DOMAIN
-========================================================= */
+const db =
+  getFirestore(app);
 
-const SITE_URL =
-  "https://napasawardvote.name.ng";
 
 /* =========================================================
    PAYMENT WORKER
@@ -33,6 +33,15 @@ const SITE_URL =
 
 const WORKER_URL =
   "https://crimson-wave-afc5.quadrisubomi.workers.dev";
+
+
+/* =========================================================
+   SITE URL
+========================================================= */
+
+const SITE_URL =
+  "https://napasawardvote.name.ng";
+
 
 /* =========================================================
    FALLBACK CATEGORIES
@@ -61,6 +70,7 @@ const FALLBACK_CATEGORIES = [
   "Brand of the Year"
 ];
 
+
 /* =========================================================
    VOTE OPTIONS
 ========================================================= */
@@ -73,6 +83,7 @@ const VOTE_OPTIONS = [
   50,
   100
 ];
+
 
 /* =========================================================
    STATE
@@ -88,222 +99,97 @@ let settings = {
 let selectedContestant = null;
 let selectedVotes = null;
 
-let contestantsLoaded = false;
-let settingsLoaded = false;
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
-const $ = selector =>
-  document.querySelector(selector);
+const $ =
+  selector =>
+    document.querySelector(selector);
 
-const $$ = selector =>
-  [...document.querySelectorAll(selector)];
+const $$ =
+  selector =>
+    [
+      ...document.querySelectorAll(selector)
+    ];
 
 
 function esc(value) {
-  return String(value ?? "").replace(
-    /[&<>"']/g,
-    character => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;"
-    }[character])
-  );
+  return String(value ?? "")
+    .replace(
+      /[&<>"']/g,
+      character =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;"
+        }[character])
+    );
 }
 
 
 function naira(value) {
   return (
     "₦" +
-    Number(value || 0).toLocaleString(
-      "en-NG"
-    )
+    Number(value || 0)
+      .toLocaleString("en-NG")
   );
 }
 
 
-function setText(selector, value) {
-  const element = $(selector);
+function setText(
+  selector,
+  value
+) {
+  const element =
+    $(selector);
 
   if (element) {
-    element.textContent = value;
+    element.textContent =
+      value;
   }
 }
 
 
 /* =========================================================
-   PAYMENT ERROR HELPER
+   SHARE TOAST
 ========================================================= */
 
-function showPaymentError(message) {
-  const error =
-    $("#paymentError");
+let toastTimer = null;
 
-  if (!error) {
-    alert(message);
+
+function showToast(message) {
+  const toast =
+    $("#shareToast");
+
+  if (!toast) {
     return;
   }
 
-  error.textContent =
-    message ||
-    "Unable to start payment. Please try again.";
+  toast.textContent =
+    message;
 
-  error.classList.remove(
-    "hidden"
+  toast.classList.add(
+    "show"
   );
+
+  clearTimeout(
+    toastTimer
+  );
+
+  toastTimer =
+    setTimeout(
+      () => {
+        toast.classList.remove(
+          "show"
+        );
+      },
+      2400
+    );
 }
-
-
-function clearPaymentError() {
-  const error =
-    $("#paymentError");
-
-  if (!error) {
-    return;
-  }
-
-  error.textContent = "";
-
-  error.classList.add(
-    "hidden"
-  );
-}
-
-
-/* =========================================================
-   SAFE JSON RESPONSE
-=========================================================
-
-   This prevents the browser from showing a vague
-   "Load failed" when the Worker returns HTML,
-   an empty response, or another invalid response.
-========================================================= */
-
-async function readWorkerResponse(
-  response
-) {
-  const contentType =
-    response.headers.get(
-      "content-type"
-    ) || "";
-
-  const text =
-    await response.text();
-
-  if (!text) {
-    throw new Error(
-      `Payment server returned an empty response (${response.status}).`
-    );
-  }
-
-  if (
-    contentType.includes(
-      "application/json"
-    )
-  ) {
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error(
-        "Payment server returned invalid JSON."
-      );
-    }
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Payment server returned an unexpected response (${response.status}).`
-    );
-  }
-}
-
-
-/* =========================================================
-   COUNTDOWN
-========================================================= */
-
-function updateCountdown() {
-  const target =
-    new Date(EVENT_TIME).getTime();
-
-  if (
-    !Number.isFinite(target)
-  ) {
-    return;
-  }
-
-  const left = Math.max(
-    0,
-    Math.floor(
-      (target - Date.now()) /
-        1000
-    )
-  );
-
-  const days =
-    Math.floor(
-      left / 86400
-    );
-
-  const hours =
-    Math.floor(
-      (left % 86400) / 3600
-    );
-
-  const minutes =
-    Math.floor(
-      (left % 3600) / 60
-    );
-
-  const seconds =
-    left % 60;
-
-  setText(
-    "#days",
-    String(days).padStart(
-      2,
-      "0"
-    )
-  );
-
-  setText(
-    "#hours",
-    String(hours).padStart(
-      2,
-      "0"
-    )
-  );
-
-  setText(
-    "#minutes",
-    String(minutes).padStart(
-      2,
-      "0"
-    )
-  );
-
-  setText(
-    "#seconds",
-    String(seconds).padStart(
-      2,
-      "0"
-    )
-  );
-}
-
-
-updateCountdown();
-
-setInterval(
-  updateCountdown,
-  1000
-);
 
 
 /* =========================================================
@@ -357,118 +243,46 @@ function contestantMeta(
 
    Example:
 
-   https://napasawardvote.name.ng/?contestant=CNT-0001
+   https://napasawardvote.name.ng/?contestant=ABC123
 
-   The contestant ID is the Firestore document ID.
+   The ID is the Firebase contestant document ID.
+
 ========================================================= */
 
-function getDirectContestantId() {
-  const params =
-    new URLSearchParams(
-      window.location.search
-    );
-
-  return (
-    params.get(
-      "contestant"
-    ) ||
-    params.get(
-      "contestantId"
-    ) ||
-    ""
-  ).trim();
-}
-
-
-function buildContestantLink(
+function contestantShareUrl(
   contestant
 ) {
   if (!contestant?.id) {
     return SITE_URL;
   }
 
-  return (
-    `${SITE_URL}/?contestant=` +
-    encodeURIComponent(
-      contestant.id
-    )
+  const url =
+    new URL(
+      SITE_URL + "/"
+    );
+
+  url.searchParams.set(
+    "contestant",
+    contestant.id
   );
+
+  return url.toString();
 }
 
 
 /* =========================================================
-   COPY CONTESTANT LINK
-========================================================= */
-
-async function copyContestantLink(
-  contestant
-) {
-  const link =
-    buildContestantLink(
-      contestant
-    );
-
-  try {
-    if (
-      navigator.clipboard &&
-      window.isSecureContext
-    ) {
-      await navigator.clipboard.writeText(
-        link
-      );
-    } else {
-      const textarea =
-        document.createElement(
-          "textarea"
-        );
-
-      textarea.value = link;
-
-      textarea.style.position =
-        "fixed";
-
-      textarea.style.opacity =
-        "0";
-
-      document.body.appendChild(
-        textarea
-      );
-
-      textarea.select();
-
-      document.execCommand(
-        "copy"
-      );
-
-      textarea.remove();
-    }
-
-    alert(
-      "Contestant voting link copied."
-    );
-
-  } catch (error) {
-    console.error(
-      "Copy link error:",
-      error
-    );
-
-    alert(
-      `Copy this voting link:\n\n${link}`
-    );
-  }
-}
-
-
-/* =========================================================
-   SHARE CONTESTANT
+   COPY / SHARE CONTESTANT
 ========================================================= */
 
 async function shareContestant(
   contestant
 ) {
-  const link =
-    buildContestantLink(
+  if (!contestant?.id) {
+    return;
+  }
+
+  const shareUrl =
+    contestantShareUrl(
       contestant
     );
 
@@ -476,129 +290,136 @@ async function shareContestant(
     contestant?.name ||
     "this NAPAS contestant";
 
-  const category =
-    categoryName(
-      contestant
-    );
+  const shareData = {
+    title:
+      `${name} — NAPAS Dinner & Award Night 2026`,
 
-  const shareText =
-    `Vote for ${name} in ${category} at the NAPAS Dinner & Award Night 2026.\n\n${link}`;
+    text:
+      `Vote for ${name} at the NAPAS Dinner & Award Night 2026.`,
 
-  try {
-    if (
-      navigator.share
-    ) {
-      await navigator.share({
-        title:
-          `Vote for ${name} — NAPAS Award Night 2026`,
-        text:
-          shareText,
-        url:
-          link
-      });
+    url:
+      shareUrl
+  };
+
+
+  /* -------------------------------------------------------
+     NATIVE PHONE SHARE
+  ------------------------------------------------------- */
+
+  if (
+    typeof navigator.share ===
+      "function"
+  ) {
+    try {
+      await navigator.share(
+        shareData
+      );
 
       return;
+    } catch (error) {
+
+      /* User cancelled native sharing.
+         Do not show an error. */
+
+      if (
+        error?.name ===
+        "AbortError"
+      ) {
+        return;
+      }
+
+    }
+  }
+
+
+  /* -------------------------------------------------------
+     COPY LINK
+  ------------------------------------------------------- */
+
+  try {
+
+    if (
+      navigator.clipboard &&
+      window.isSecureContext
+    ) {
+      await navigator.clipboard.writeText(
+        shareUrl
+      );
+
+    } else {
+
+      const temporary =
+        document.createElement(
+          "textarea"
+        );
+
+      temporary.value =
+        shareUrl;
+
+      temporary.style.position =
+        "fixed";
+
+      temporary.style.left =
+        "-9999px";
+
+      document.body.appendChild(
+        temporary
+      );
+
+      temporary.select();
+
+      document.execCommand(
+        "copy"
+      );
+
+      temporary.remove();
     }
 
-    await copyContestantLink(
-      contestant
+    showToast(
+      "Contestant link copied."
     );
 
   } catch (error) {
-    /*
-      User cancelling native share
-      is not an application error.
-    */
-
-    if (
-      error?.name ===
-      "AbortError"
-    ) {
-      return;
-    }
 
     console.error(
-      "Share error:",
+      "Share link copy error:",
       error
     );
 
-    await copyContestantLink(
-      contestant
+    /* Last fallback:
+       show the URL through a prompt
+       so the user can still copy it. */
+
+    window.prompt(
+      "Copy this contestant link:",
+      shareUrl
     );
   }
 }
 
 
 /* =========================================================
-   SHOW DIRECT CONTESTANT
+   SHARE ICON
 ========================================================= */
 
-function openDirectContestant() {
-  const id =
-    getDirectContestantId();
-
-  if (!id) {
-    return;
-  }
-
-  if (!contestantsLoaded) {
-    return;
-  }
-
-  const contestant =
-    contestants.find(
-      item =>
-        String(item.id) ===
-        String(id)
-    );
-
-  if (!contestant) {
-    console.warn(
-      "Direct contestant not found:",
-      id
-    );
-
-    const grid =
-      $("#grid");
-
-    if (grid) {
-      grid.scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-      });
-    }
-
-    return;
-  }
-
-  /*
-    Make sure the user lands on the
-    voting section.
-  */
-
-  const voting =
-    $("#voting");
-
-  if (voting) {
-    voting.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    });
-  }
-
-  /*
-    Open the contestant's voting
-    profile automatically.
-  */
-
-  setTimeout(
-    () => {
-      openModal(
-        contestant.id
-      );
-    },
-    450
-  );
+function shareIcon() {
+  return `
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="18" cy="5" r="3"></circle>
+      <circle cx="6" cy="12" r="3"></circle>
+      <circle cx="18" cy="19" r="3"></circle>
+      <path d="M8.6 13.5l6.8 3.9"></path>
+      <path d="M15.4 6.6L8.6 10.5"></path>
+    </svg>
+  `;
 }
 
 
@@ -607,6 +428,7 @@ function openDirectContestant() {
 ========================================================= */
 
 function filtered() {
+
   const searchInput =
     $("#search");
 
@@ -616,15 +438,14 @@ function filtered() {
   const query =
     searchInput?.value
       ?.trim()
-      .toLowerCase() ||
-    "";
+      .toLowerCase() || "";
 
   const category =
-    categoryInput?.value ||
-    "";
+    categoryInput?.value || "";
 
   return contestants.filter(
     contestant => {
+
       const text = [
         contestant?.name,
         contestant?.nickname,
@@ -662,12 +483,11 @@ function filtered() {
 ========================================================= */
 
 function renderCategories() {
+
   const categories = [
     ...new Set(
       contestants
-        .map(
-          categoryName
-        )
+        .map(categoryName)
         .filter(Boolean)
     )
   ];
@@ -686,13 +506,9 @@ function renderCategories() {
     $("#category");
 
   if (categorySelect) {
-    const currentValue =
-      categorySelect.value;
 
     categorySelect.innerHTML =
-      `<option value="">
-        All categories
-      </option>` +
+      `<option value="">All categories</option>` +
       list
         .map(
           category =>
@@ -703,15 +519,6 @@ function renderCategories() {
             </option>`
         )
         .join("");
-
-    if (
-      list.includes(
-        currentValue
-      )
-    ) {
-      categorySelect.value =
-        currentValue;
-    }
   }
 
 
@@ -723,34 +530,20 @@ function renderCategories() {
     $("#pills");
 
   if (pills) {
-    const current =
-      $("#category")?.value ||
-      "";
 
     pills.innerHTML =
       `<button
         type="button"
-        class="${
-          current === ""
-            ? "active"
-            : ""
-        }"
+        class="active"
         data-cat=""
       >
         All
       </button>` +
-
       list
         .map(
           category =>
             `<button
               type="button"
-              class="${
-                current ===
-                category
-                  ? "active"
-                  : ""
-              }"
               data-cat="${esc(
                 category
               )}"
@@ -760,38 +553,44 @@ function renderCategories() {
         )
         .join("");
 
-    $$("#pills button").forEach(
-      button => {
-        button.addEventListener(
-          "click",
-          () => {
-            const category =
-              button.dataset.cat ||
-              "";
 
-            if (
-              $("#category")
-            ) {
-              $("#category").value =
-                category;
+    $$("#pills button")
+      .forEach(
+        button => {
+
+          button.addEventListener(
+            "click",
+            () => {
+
+              const category =
+                button.dataset.cat ||
+                "";
+
+              if (
+                $("#category")
+              ) {
+                $("#category").value =
+                  category;
+              }
+
+              $$("#pills button")
+                .forEach(
+                  item =>
+                    item.classList.remove(
+                      "active"
+                    )
+                );
+
+              button.classList.add(
+                "active"
+              );
+
+              renderContestants();
             }
+          );
 
-            $$("#pills button").forEach(
-              item =>
-                item.classList.remove(
-                  "active"
-                )
-            );
-
-            button.classList.add(
-              "active"
-            );
-
-            renderContestants();
-          }
-        );
-      }
-    );
+        }
+      );
   }
 
 
@@ -803,86 +602,106 @@ function renderCategories() {
     $("#categoryGrid");
 
   if (categoryGrid) {
+
     categoryGrid.innerHTML =
       list
-        .map(category => {
-          const count =
-            contestants.filter(
-              contestant =>
-                categoryName(
-                  contestant
-                ) === category
-            ).length;
+        .map(
+          category => {
 
-          return `
-            <a
-              class="category-card"
-              href="#voting"
-              data-category-link="${esc(
-                category
-              )}"
-            >
-              <span>
+            const count =
+              contestants.filter(
+                contestant =>
+                  categoryName(
+                    contestant
+                  ) === category
+              ).length;
+
+            return `
+              <a
+                class="category-card"
+                href="#voting"
+                data-category-link="${esc(
+                  category
+                )}"
+              >
+
                 <span>
-                  <strong>
-                    ${esc(category)}
-                  </strong>
 
-                  <small>
-                    ${count}
-                    nominee${
-                      count === 1
-                        ? ""
-                        : "s"
-                    }
-                  </small>
+                  <span>
+
+                    <strong>
+                      ${esc(category)}
+                    </strong>
+
+                    <small>
+                      ${count}
+                      nominee${
+                        count === 1
+                          ? ""
+                          : "s"
+                      }
+                    </small>
+
+                  </span>
+
                 </span>
-              </span>
 
-              <span class="category-arrow">
-                ›
-              </span>
-            </a>
-          `;
-        })
+                <span class="category-arrow">
+                  ›
+                </span>
+
+              </a>
+            `;
+          }
+        )
         .join("");
+
 
     $$(
       "[data-category-link]"
-    ).forEach(link => {
-      link.addEventListener(
-        "click",
-        () => {
-          const category =
-            link.dataset
-              .categoryLink ||
-            "";
+    ).forEach(
+      link => {
 
-          if (
-            $("#category")
-          ) {
-            $("#category").value =
-              category;
-          }
+        link.addEventListener(
+          "click",
+          () => {
 
-          $$("#pills button").forEach(
-            button => {
-              button.classList.toggle(
-                "active",
-                (button.dataset.cat ||
-                  "") ===
-                  category
-              );
+            const category =
+              link.dataset
+                .categoryLink ||
+              "";
+
+            if (
+              $("#category")
+            ) {
+              $("#category").value =
+                category;
             }
-          );
 
-          setTimeout(
-            renderContestants,
-            0
-          );
-        }
-      );
-    });
+            $$("#pills button")
+              .forEach(
+                button => {
+
+                  button.classList.toggle(
+                    "active",
+                    (
+                      button.dataset.cat ||
+                      ""
+                    ) === category
+                  );
+
+                }
+              );
+
+            setTimeout(
+              renderContestants,
+              0
+            );
+          }
+        );
+
+      }
+    );
   }
 }
 
@@ -892,6 +711,7 @@ function renderCategories() {
 ========================================================= */
 
 function renderContestants() {
+
   const grid =
     $("#grid");
 
@@ -905,11 +725,14 @@ function renderContestants() {
   const empty =
     $("#empty");
 
+
   if (empty) {
+
     empty.classList.toggle(
       "hidden",
       list.length > 0
     );
+
   }
 
 
@@ -917,6 +740,7 @@ function renderContestants() {
     list
       .map(
         contestant => {
+
           const image =
             contestantImage(
               contestant
@@ -929,9 +753,9 @@ function renderContestants() {
 
           const votes =
             Number(
-              contestant?.votes ||
-                0
+              contestant?.votes || 0
             ).toLocaleString();
+
 
           return `
             <article
@@ -942,16 +766,15 @@ function renderContestants() {
             >
 
               <div class="card-photo">
+
                 ${
                   image
                     ? `
                       <img
-                        src="${esc(
-                          image
-                        )}"
+                        src="${esc(image)}"
                         alt="${esc(
                           contestant?.name ||
-                            "Contestant"
+                          "Contestant"
                         )}"
                         loading="lazy"
                       >
@@ -963,7 +786,9 @@ function renderContestants() {
                       ></div>
                     `
                 }
+
               </div>
+
 
               <div class="card-body">
 
@@ -975,12 +800,14 @@ function renderContestants() {
                   )}
                 </span>
 
+
                 <h3 class="card-name">
                   ${esc(
                     contestant?.name ||
-                      "Unnamed contestant"
+                    "Unnamed contestant"
                   )}
                 </h3>
+
 
                 ${
                   contestant?.nickname
@@ -993,6 +820,7 @@ function renderContestants() {
                     `
                     : ""
                 }
+
 
                 ${
                   meta.length
@@ -1011,9 +839,11 @@ function renderContestants() {
                     : ""
                 }
 
+
                 <div class="card-votes">
                   ${votes} votes
                 </div>
+
 
                 <div class="contestant-actions">
 
@@ -1029,6 +859,7 @@ function renderContestants() {
                         : "disabled"
                     }
                   >
+
                     ${
                       settings.votingOpen
                         ? "Vote Now"
@@ -1036,18 +867,23 @@ function renderContestants() {
                     }
 
                     <span>→</span>
+
                   </button>
 
+
                   <button
-                    class="contestant-share"
+                    class="share-contestant"
                     type="button"
                     data-share-id="${esc(
                       contestant.id
                     )}"
-                    aria-label="Share contestant voting link"
-                    title="Share voting link"
+                    aria-label="Share ${esc(
+                      contestant?.name ||
+                      "contestant"
+                    )}"
+                    title="Share"
                   >
-                    ↗
+                    ${shareIcon()}
                   </button>
 
                 </div>
@@ -1065,93 +901,190 @@ function renderContestants() {
      VOTE BUTTONS
   ------------------------------------------------------- */
 
-  $$(".contestant-vote").forEach(
-    button => {
-      button.addEventListener(
-        "click",
-        () =>
-          openModal(
-            button.dataset.id
-          )
-      );
-    }
-  );
+  $$(".contestant-vote")
+    .forEach(
+      button => {
+
+        button.addEventListener(
+          "click",
+          () =>
+            openModal(
+              button.dataset.id
+            )
+        );
+
+      }
+    );
 
 
   /* -------------------------------------------------------
      SHARE BUTTONS
   ------------------------------------------------------- */
 
-  $$(
-    "[data-share-id]"
-  ).forEach(button => {
-    button.addEventListener(
-      "click",
-      async event => {
-        event.preventDefault();
-        event.stopPropagation();
+  $$(".share-contestant")
+    .forEach(
+      button => {
 
-        const contestant =
-          contestants.find(
-            item =>
-              String(item.id) ===
-              String(
-                button.dataset
-                  .shareId
-              )
-          );
+        button.addEventListener(
+          "click",
+          async () => {
 
-        if (!contestant) {
-          return;
-        }
+            const contestant =
+              contestants.find(
+                item =>
+                  item.id ===
+                  button.dataset.shareId
+              );
 
-        await shareContestant(
-          contestant
+            if (!contestant) {
+              return;
+            }
+
+            button.setAttribute(
+              "aria-busy",
+              "true"
+            );
+
+            try {
+
+              await shareContestant(
+                contestant
+              );
+
+            } finally {
+
+              button.removeAttribute(
+                "aria-busy"
+              );
+
+            }
+
+          }
         );
+
       }
     );
-  });
-
-
-  /* -------------------------------------------------------
-     CLICK CONTESTANT PROFILE
-  -------------------------------------------------------
-
-     Clicking the main profile/card opens
-     the contestant voting profile.
-
-  ------------------------------------------------------- */
-
-  $$(
-    "[data-contestant-card]"
-  ).forEach(card => {
-    card.addEventListener(
-      "click",
-      event => {
-        /*
-          Do not trigger when the user clicked
-          a button inside the card.
-        */
-
-        if (
-          event.target.closest(
-            "button"
-          )
-        ) {
-          return;
-        }
-
-        const id =
-          card.dataset
-            .contestantCard;
-
-        openModal(id);
-      }
-    );
-  });
 
 
   renderLeaderboard();
+}
+
+
+/* =========================================================
+   OPEN DIRECT CONTESTANT
+========================================================= */
+
+function getDirectContestantId() {
+
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  return (
+    params.get(
+      "contestant"
+    ) || ""
+  ).trim();
+}
+
+
+function removeDirectContestantParameter() {
+
+  const url =
+    new URL(
+      window.location.href
+    );
+
+  url.searchParams.delete(
+    "contestant"
+  );
+
+  window.history.replaceState(
+    {},
+    document.title,
+    url.pathname +
+      url.search +
+      url.hash
+  );
+}
+
+
+function openDirectContestant() {
+
+  const id =
+    getDirectContestantId();
+
+  if (!id) {
+    return;
+  }
+
+  const contestant =
+    contestants.find(
+      item =>
+        item.id === id
+    );
+
+  if (!contestant) {
+
+    console.warn(
+      "Shared contestant not found:",
+      id
+    );
+
+    return;
+  }
+
+
+  /* Make sure the voting area is visible. */
+
+  const voting =
+    $("#voting");
+
+  if (voting) {
+
+    voting.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+
+  }
+
+
+  /* Open the contestant directly. */
+
+  setTimeout(
+    () => {
+
+      const card =
+        document.querySelector(
+          `[data-contestant-card="${CSS.escape(
+            id
+          )}"]`
+        );
+
+      if (card) {
+
+        card.classList.add(
+          "direct-contestant"
+        );
+
+        setTimeout(
+          () => {
+            card.classList.remove(
+              "direct-contestant"
+            );
+          },
+          2200
+        );
+
+      }
+
+      openModal(id);
+
+    },
+    500
+  );
 }
 
 
@@ -1160,6 +1093,7 @@ function renderContestants() {
 ========================================================= */
 
 function renderLeaderboard() {
+
   const leaderboard =
     $("#leaderboard");
 
@@ -1180,7 +1114,9 @@ function renderLeaderboard() {
       )
       .slice(0, 10);
 
+
   if (!top.length) {
+
     leaderboard.innerHTML = `
       <div class="empty-state">
         No results available yet.
@@ -1190,50 +1126,54 @@ function renderLeaderboard() {
     return;
   }
 
+
   leaderboard.innerHTML =
     top
       .map(
-        (contestant, index) => `
-          <div class="leader-row">
+        (contestant, index) =>
+          `
+            <div class="leader-row">
 
-            <span
-              class="rank ${
-                index < 3
-                  ? "top"
-                  : ""
-              }"
-            >
-              ${index + 1}
-            </span>
+              <span
+                class="rank ${
+                  index < 3
+                    ? "top"
+                    : ""
+                }"
+              >
+                ${index + 1}
+              </span>
 
-            <div class="leaderboard-person">
 
-              <strong>
-                ${esc(
-                  contestant?.name ||
+              <div class="leaderboard-person">
+
+                <strong>
+                  ${esc(
+                    contestant?.name ||
                     "Unnamed contestant"
-                )}
+                  )}
+                </strong>
+
+                <small>
+                  ${esc(
+                    categoryName(
+                      contestant
+                    )
+                  )}
+                </small>
+
+              </div>
+
+
+              <strong class="leaderboard-votes">
+                ${Number(
+                  contestant?.votes ||
+                  0
+                ).toLocaleString()}
               </strong>
 
-              <small>
-                ${esc(
-                  categoryName(
-                    contestant
-                  )
-                )}
-              </small>
-
             </div>
-
-            <strong class="leaderboard-votes">
-              ${Number(
-                contestant?.votes ||
-                  0
-              ).toLocaleString()}
-            </strong>
-
-          </div>
-        `
+          `
       )
       .join("");
 }
@@ -1244,8 +1184,10 @@ function renderLeaderboard() {
 ========================================================= */
 
 function setStatus() {
+
   const open =
     !!settings.votingOpen;
+
 
   setText(
     "#status",
@@ -1254,15 +1196,19 @@ function setStatus() {
       : "Voting Closed"
   );
 
+
   const status =
     $("#status");
 
   if (status) {
+
     status.style.color =
       open
         ? "var(--success)"
         : "var(--danger)";
+
   }
+
 
   setText(
     "#heroStatus",
@@ -1270,6 +1216,7 @@ function setStatus() {
       ? "OPEN NOW"
       : "CLOSED"
   );
+
 
   setText(
     "#price",
@@ -1285,6 +1232,7 @@ function setStatus() {
 ========================================================= */
 
 function createAnonymousVoter() {
+
   const timestamp =
     Date.now();
 
@@ -1293,7 +1241,9 @@ function createAnonymousVoter() {
       .toString(36)
       .slice(2, 10);
 
+
   return {
+
     name:
       "NAPAS Voter",
 
@@ -1302,6 +1252,7 @@ function createAnonymousVoter() {
 
     phone:
       ""
+
   };
 }
 
@@ -1311,21 +1262,22 @@ function createAnonymousVoter() {
 ========================================================= */
 
 function openModal(id) {
+
   selectedContestant =
     contestants.find(
       contestant =>
-        String(
-          contestant.id
-        ) ===
-        String(id)
+        contestant.id === id
     );
+
 
   if (!selectedContestant) {
     return;
   }
 
+
   selectedVotes =
     null;
+
 
   setText(
     "#modalCategory",
@@ -1334,11 +1286,13 @@ function openModal(id) {
     )
   );
 
+
   setText(
     "#modalName",
     selectedContestant.name ||
       "Contestant"
   );
+
 
   setText(
     "#modalMeta",
@@ -1346,9 +1300,10 @@ function openModal(id) {
       ...contestantMeta(
         selectedContestant
       ),
+
       `${Number(
         selectedContestant.votes ||
-          0
+        0
       ).toLocaleString()} votes`
     ]
       .filter(Boolean)
@@ -1356,19 +1311,18 @@ function openModal(id) {
   );
 
 
-  /* -------------------------------------------------------
-     MODAL IMAGE
-  ------------------------------------------------------- */
-
   const image =
     contestantImage(
       selectedContestant
     );
 
+
   const modalPhoto =
     $("#modalPhoto");
 
+
   if (modalPhoto) {
+
     modalPhoto.innerHTML =
       image
         ? `
@@ -1376,7 +1330,7 @@ function openModal(id) {
             src="${esc(image)}"
             alt="${esc(
               selectedContestant.name ||
-                "Contestant"
+              "Contestant"
             )}"
           >
         `
@@ -1386,12 +1340,9 @@ function openModal(id) {
             aria-hidden="true"
           ></div>
         `;
+
   }
 
-
-  /* -------------------------------------------------------
-     MODAL PRICE
-  ------------------------------------------------------- */
 
   setText(
     "#modalPrice",
@@ -1401,25 +1352,46 @@ function openModal(id) {
   );
 
 
-  /* -------------------------------------------------------
-     RESET FIELDS
-  ------------------------------------------------------- */
-
   const customVotes =
     $("#customVotes");
 
+
   if (customVotes) {
-    customVotes.value =
-      "";
+    customVotes.value = "";
   }
 
 
-  clearPaymentError();
+  const paymentError =
+    $("#paymentError");
+
+
+  if (paymentError) {
+
+    paymentError.classList.add(
+      "hidden"
+    );
+
+    paymentError.textContent =
+      "";
+
+  }
 
 
   /* -------------------------------------------------------
-     HIDE OLD VOTER DETAILS
+     Hide old voter fields.
   ------------------------------------------------------- */
+
+  const voterFields =
+    $("#voterFields");
+
+
+  if (voterFields) {
+
+    voterFields.style.display =
+      "none";
+
+  }
+
 
   [
     "#voterName",
@@ -1427,25 +1399,20 @@ function openModal(id) {
     "#voterPhone"
   ].forEach(
     selector => {
+
       const input =
         $(selector);
 
-      if (!input) {
-        return;
+      if (input) {
+
+        input.value =
+          "";
+
+        input.disabled =
+          true;
+
       }
 
-      input.value =
-        "";
-
-      const label =
-        input.closest(
-          "label"
-        );
-
-      if (label) {
-        label.style.display =
-          "none";
-      }
     }
   );
 
@@ -1457,79 +1424,90 @@ function openModal(id) {
   const voteOptions =
     $("#voteOptions");
 
+
   if (voteOptions) {
+
     voteOptions.innerHTML =
       VOTE_OPTIONS
         .map(
-          votes => `
-            <button
-              type="button"
-              class="vote-option"
-              data-votes="${votes}"
-            >
-              ${votes.toLocaleString()}
+          votes =>
+            `
+              <button
+                type="button"
+                class="vote-option"
+                data-votes="${votes}"
+              >
 
-              <span>
-                ${naira(
-                  votes *
+                ${votes.toLocaleString()}
+
+                <span>
+                  ${naira(
+                    votes *
                     Number(
                       settings.votePrice
                     )
-                )}
-              </span>
-            </button>
-          `
+                  )}
+                </span>
+
+              </button>
+            `
         )
         .join("");
 
-    $$(".vote-option").forEach(
-      button => {
-        button.addEventListener(
-          "click",
-          () => {
-            selectedVotes =
-              Number(
-                button.dataset
-                  .votes
+
+    $$(".vote-option")
+      .forEach(
+        button => {
+
+          button.addEventListener(
+            "click",
+            () => {
+
+              selectedVotes =
+                Number(
+                  button.dataset.votes
+                );
+
+
+              if (customVotes) {
+                customVotes.value =
+                  "";
+              }
+
+
+              $$(".vote-option")
+                .forEach(
+                  item =>
+                    item.classList.remove(
+                      "selected"
+                    )
+                );
+
+
+              button.classList.add(
+                "selected"
               );
 
-            if (
-              customVotes
-            ) {
-              customVotes.value =
-                "";
+
+              updateTotal();
+
             }
+          );
 
-            $$(".vote-option").forEach(
-              item =>
-                item.classList.remove(
-                  "selected"
-                )
-            );
-
-            button.classList.add(
-              "selected"
-            );
-
-            updateTotal();
-          }
-        );
-      }
-    );
+        }
+      );
   }
 
 
   updateTotal();
 
 
-  /* -------------------------------------------------------
-     MODAL
-  ------------------------------------------------------- */
-
   const modal =
     $("#voteModal");
 
+
   if (modal) {
+
     modal.classList.remove(
       "hidden"
     );
@@ -1542,6 +1520,7 @@ function openModal(id) {
     document.body.classList.add(
       "modal-open"
     );
+
   }
 }
 
@@ -1551,26 +1530,37 @@ function openModal(id) {
 ========================================================= */
 
 function updateTotal() {
+
   const custom =
     Number(
       $("#customVotes")
-        ?.value ||
-        0
+        ?.value || 0
     );
+
 
   if (
     custom > 0
   ) {
-    selectedVotes =
-      Math.floor(custom);
 
-    $$(".vote-option").forEach(
-      option =>
-        option.classList.remove(
-          "selected"
+    selectedVotes =
+      Math.min(
+        1000,
+        Math.floor(
+          custom
         )
-    );
+      );
+
+
+    $$(".vote-option")
+      .forEach(
+        option =>
+          option.classList.remove(
+            "selected"
+          )
+      );
+
   }
+
 
   const amount =
     selectedVotes
@@ -1580,20 +1570,26 @@ function updateTotal() {
         )
       : 0;
 
+
   setText(
     "#modalTotal",
     naira(amount)
   );
 
+
   const pay =
     $("#pay");
 
+
   if (pay) {
-    pay.disabled = !(
-      settings.votingOpen &&
-      selectedContestant &&
-      selectedVotes > 0
-    );
+
+    pay.disabled =
+      !(
+        settings.votingOpen &&
+        selectedContestant &&
+        selectedVotes > 0
+      );
+
   }
 }
 
@@ -1603,10 +1599,13 @@ function updateTotal() {
 ========================================================= */
 
 function closeModal() {
+
   const modal =
     $("#voteModal");
 
+
   if (modal) {
+
     modal.classList.add(
       "hidden"
     );
@@ -1615,11 +1614,14 @@ function closeModal() {
       "aria-hidden",
       "true"
     );
+
   }
+
 
   document.body.classList.remove(
     "modal-open"
   );
+
 
   selectedContestant =
     null;
@@ -1636,40 +1638,51 @@ function closeModal() {
 const modalClose =
   $("#modalClose");
 
+
 if (modalClose) {
+
   modalClose.addEventListener(
     "click",
     closeModal
   );
+
 }
 
 
 const voteModal =
   $("#voteModal");
 
+
 if (voteModal) {
+
   voteModal.addEventListener(
     "click",
     event => {
+
       if (
         event.target ===
         event.currentTarget
       ) {
         closeModal();
       }
+
     }
   );
+
 }
 
 
 const customVotes =
   $("#customVotes");
 
+
 if (customVotes) {
+
   customVotes.addEventListener(
     "input",
     updateTotal
   );
+
 }
 
 
@@ -1678,36 +1691,28 @@ if (customVotes) {
 ========================================================= */
 
 async function startPayment() {
-  clearPaymentError();
 
-  if (
-    !selectedContestant
-  ) {
-    showPaymentError(
-      "Please select a contestant first."
+  const error =
+    $("#paymentError");
+
+
+  if (error) {
+
+    error.classList.add(
+      "hidden"
     );
 
-    return;
+    error.textContent =
+      "";
+
   }
 
+
   if (
+    !selectedContestant ||
     !selectedVotes ||
     selectedVotes < 1
   ) {
-    showPaymentError(
-      "Please select at least one vote."
-    );
-
-    return;
-  }
-
-  if (
-    !settings.votingOpen
-  ) {
-    showPaymentError(
-      "Voting is currently closed."
-    );
-
     return;
   }
 
@@ -1715,41 +1720,8 @@ async function startPayment() {
   const button =
     $("#pay");
 
+
   if (!button) {
-    return;
-  }
-
-
-  const contestantId =
-    String(
-      selectedContestant.id ||
-        ""
-    ).trim();
-
-  if (!contestantId) {
-    showPaymentError(
-      "This contestant does not have a valid voting ID."
-    );
-
-    return;
-  }
-
-
-  const votes =
-    Math.floor(
-      Number(
-        selectedVotes
-      )
-    );
-
-  if (
-    !Number.isFinite(votes) ||
-    votes < 1
-  ) {
-    showPaymentError(
-      "Please enter a valid number of votes."
-    );
-
     return;
   }
 
@@ -1765,162 +1737,81 @@ async function startPayment() {
     createAnonymousVoter();
 
 
-  /*
-    IMPORTANT:
-
-    Always return to the actual website,
-    not the Cloudflare Worker.
-  */
-
-  const callbackUrl =
-    `${SITE_URL}/?payment=return`;
-
-
-  const payload = {
-    contestantId,
-
-    votes,
-
-    email:
-      voter.email,
-
-    name:
-      voter.name,
-
-    phone:
-      voter.phone,
-
-    callbackUrl
-  };
-
-
-  console.log(
-    "NAPAS payment initialization:",
-    {
-      contestantId,
-      votes,
-      callbackUrl
-    }
-  );
-
-
   try {
 
-    /*
-      Abort the request after 25 seconds
-      instead of leaving the user staring
-      at a loading screen forever.
-    */
+    const response =
+      await fetch(
+        `${WORKER_URL}/initialize`,
+        {
+          method:
+            "POST",
 
-    const controller =
-      new AbortController();
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
 
-    const timeout =
-      setTimeout(
-        () =>
-          controller.abort(),
-        25000
+          body:
+            JSON.stringify({
+
+              contestantId:
+                selectedContestant.id,
+
+              votes:
+                selectedVotes,
+
+              email:
+                voter.email,
+
+              name:
+                voter.name,
+
+              phone:
+                voter.phone,
+
+              /* IMPORTANT:
+                 Always return to the current
+                 live domain instead of the
+                 old napas-award.com domain. */
+
+              callbackUrl:
+                `${SITE_URL}/?payment=return`
+
+            })
+        }
       );
-
-
-    let response;
-
-    try {
-
-      response =
-        await fetch(
-          `${WORKER_URL}/initialize`,
-          {
-            method:
-              "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              "Accept":
-                "application/json"
-            },
-
-            body:
-              JSON.stringify(
-                payload
-              ),
-
-            signal:
-              controller.signal,
-
-            cache:
-              "no-store"
-          }
-        );
-
-    } finally {
-
-      clearTimeout(
-        timeout
-      );
-    }
 
 
     const data =
-      await readWorkerResponse(
-        response
-      );
-
-
-    console.log(
-      "NAPAS payment Worker response:",
-      data
-    );
+      await response.json();
 
 
     if (
-      !response.ok
+      !response.ok ||
+      !data.success
     ) {
+
       throw new Error(
-        data?.error ||
-          data?.message ||
-          `Payment server error (${response.status}).`
+        data.error ||
+        "Unable to start payment."
       );
+
     }
 
-
-    if (
-      !data?.success
-    ) {
-      throw new Error(
-        data?.error ||
-          data?.message ||
-          "Payment could not be initialized."
-      );
-    }
-
-
-    if (
-      !data.authorization_url
-    ) {
-      throw new Error(
-        "Payment server did not return a Paystack checkout URL."
-      );
-    }
-
-
-    /*
-      Save payment information before
-      leaving the website.
-    */
 
     sessionStorage.setItem(
       "napas_pending_payment",
+
       JSON.stringify({
+
         reference:
-          data.reference ||
-          "",
+          data.reference,
 
-        contestantId,
+        contestantId:
+          selectedContestant.id,
 
-        votes,
+        votes:
+          selectedVotes,
 
         email:
           voter.email,
@@ -1930,50 +1821,47 @@ async function startPayment() {
 
         phone:
           voter.phone
+
       })
     );
 
 
-    /*
-      Send voter directly to Paystack.
-    */
+    if (
+      !data.authorization_url
+    ) {
 
-    window.location.assign(
-      data.authorization_url
-    );
+      throw new Error(
+        "Payment link was not returned by the payment server."
+      );
 
-  } catch (errorObject) {
+    }
+
+
+    location.href =
+      data.authorization_url;
+
+
+  } catch (
+    errorObject
+  ) {
 
     console.error(
-      "NAPAS payment initialization error:",
+      "Payment initialization error:",
       errorObject
     );
 
 
-    let message =
-      "Unable to connect to the payment server.";
+    if (error) {
 
+      error.textContent =
+        errorObject.message ||
+        "Unable to start payment. Please try again.";
 
-    if (
-      errorObject?.name ===
-      "AbortError"
-    ) {
+      error.classList.remove(
+        "hidden"
+      );
 
-      message =
-        "The payment server took too long to respond. Please try again.";
-
-    } else if (
-      errorObject?.message
-    ) {
-
-      message =
-        errorObject.message;
     }
-
-
-    showPaymentError(
-      message
-    );
 
 
     button.disabled =
@@ -1992,11 +1880,14 @@ async function startPayment() {
 const payButton =
   $("#pay");
 
+
 if (payButton) {
+
   payButton.addEventListener(
     "click",
     startPayment
   );
+
 }
 
 
@@ -2005,9 +1896,10 @@ if (payButton) {
 ========================================================= */
 
 async function handlePaymentReturn() {
+
   const params =
     new URLSearchParams(
-      window.location.search
+      location.search
     );
 
 
@@ -2032,12 +1924,6 @@ async function handlePaymentReturn() {
 
 
   if (!pendingRaw) {
-
-    console.warn(
-      "Payment reference exists but no pending payment was found:",
-      reference
-    );
-
     return;
   }
 
@@ -2062,199 +1948,124 @@ async function handlePaymentReturn() {
   }
 
 
-  /*
-    Remove Paystack query parameters
-    from the address bar.
-  */
-
-  const cleanUrl =
-    `${SITE_URL}/`;
-
-
-  try {
-
-    history.replaceState(
-      {},
-      document.title,
-      cleanUrl
-    );
-
-  } catch {
-    /*
-      Not fatal.
-    */
-  }
+  history.replaceState(
+    {},
+    document.title,
+    location.pathname +
+      location.hash
+  );
 
 
   try {
 
-    const controller =
-      new AbortController();
+    const response =
+      await fetch(
+        `${WORKER_URL}/verify`,
+        {
+          method:
+            "POST",
 
-    const timeout =
-      setTimeout(
-        () =>
-          controller.abort(),
-        30000
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+
+              reference,
+
+              contestantId:
+                pending.contestantId,
+
+              votes:
+                pending.votes,
+
+              email:
+                pending.email,
+
+              name:
+                pending.name,
+
+              phone:
+                pending.phone
+
+            })
+        }
       );
-
-
-    let response;
-
-    try {
-
-      response =
-        await fetch(
-          `${WORKER_URL}/verify`,
-          {
-            method:
-              "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              "Accept":
-                "application/json"
-            },
-
-            body:
-              JSON.stringify({
-                reference,
-
-                contestantId:
-                  pending.contestantId,
-
-                votes:
-                  pending.votes,
-
-                email:
-                  pending.email,
-
-                name:
-                  pending.name,
-
-                phone:
-                  pending.phone
-              }),
-
-            signal:
-              controller.signal,
-
-            cache:
-              "no-store"
-          }
-        );
-
-    } finally {
-
-      clearTimeout(
-        timeout
-      );
-    }
 
 
     const data =
-      await readWorkerResponse(
-        response
-      );
-
-
-    console.log(
-      "NAPAS payment verification response:",
-      data
-    );
+      await response.json();
 
 
     if (
-      !response.ok
+      !response.ok ||
+      !data.success
     ) {
+
       throw new Error(
-        data?.error ||
-          data?.message ||
-          `Payment verification server error (${response.status}).`
+        data.error ||
+        "Payment verification failed."
       );
+
     }
 
-
-    if (
-      !data?.success
-    ) {
-      throw new Error(
-        data?.error ||
-          data?.message ||
-          "Payment verification failed."
-      );
-    }
-
-
-    /*
-      Payment is verified.
-
-      Only now remove the pending payment.
-    */
 
     sessionStorage.removeItem(
       "napas_pending_payment"
     );
 
 
-    const verifiedVotes =
-      Number(
-        pending.votes ||
-          data.votes ||
-          0
-      );
-
-
     if (
       $("#successText")
     ) {
+
       $("#successText")
         .textContent =
-        `${verifiedVotes.toLocaleString()} vote${
-          verifiedVotes === 1
+        `${Number(
+          pending.votes
+        ).toLocaleString()} vote${
+          Number(
+            pending.votes
+          ) === 1
             ? ""
             : "s"
         } have been added to the selected contestant.`;
+
     }
 
 
     if (
       $("#successVotes")
     ) {
+
       $("#successVotes")
         .textContent =
         Number(
           data.newTotalVotes ||
-            data.totalVotes ||
-            0
+          0
         ).toLocaleString();
+
     }
 
 
     if (
       $("#successReference")
     ) {
+
       $("#successReference")
         .textContent =
         reference;
+
     }
 
-
-    /*
-      Refresh contestant data before
-      showing success, so the public
-      page receives the latest vote count.
-    */
 
     const successModal =
       $("#successModal");
 
 
-    if (
-      successModal
-    ) {
+    if (successModal) {
 
       successModal.classList.remove(
         "hidden"
@@ -2264,6 +2075,7 @@ async function handlePaymentReturn() {
         "aria-hidden",
         "false"
       );
+
     }
 
 
@@ -2272,45 +2084,21 @@ async function handlePaymentReturn() {
   ) {
 
     console.error(
-      "NAPAS payment verification error:",
+      "Payment verification error:",
       errorObject
     );
 
 
-    /*
-      IMPORTANT:
-
-      Do NOT delete the pending payment
-      when verification fails.
-
-      Keeping it allows another verification
-      attempt after a temporary network error.
-    */
-
-    let message =
-      "We could not verify the payment right now.";
-
-
-    if (
-      errorObject?.name ===
-      "AbortError"
-    ) {
-
-      message =
-        "Payment verification took too long. Please wait a moment and refresh the page.";
-
-    } else if (
-      errorObject?.message
-    ) {
-
-      message =
-        errorObject.message;
-    }
+    sessionStorage.removeItem(
+      "napas_pending_payment"
+    );
 
 
     alert(
-      `${message}\n\nPayment reference: ${reference}\n\nIf money was deducted, do not pay again immediately. Keep this reference.`
+      errorObject.message ||
+      "Payment verification failed. If money was deducted, keep your Paystack reference and contact NAPAS."
     );
+
   }
 }
 
@@ -2320,10 +2108,13 @@ async function handlePaymentReturn() {
 ========================================================= */
 
 function closeSuccessModal() {
+
   const modal =
     $("#successModal");
 
+
   if (modal) {
+
     modal.classList.add(
       "hidden"
     );
@@ -2332,6 +2123,7 @@ function closeSuccessModal() {
       "aria-hidden",
       "true"
     );
+
   }
 }
 
@@ -2339,22 +2131,28 @@ function closeSuccessModal() {
 const successClose =
   $("#successClose");
 
+
 if (successClose) {
+
   successClose.addEventListener(
     "click",
     closeSuccessModal
   );
+
 }
 
 
 const successResults =
   $("#successResults");
 
+
 if (successResults) {
+
   successResults.addEventListener(
     "click",
     closeSuccessModal
   );
+
 }
 
 
@@ -2365,11 +2163,14 @@ if (successResults) {
 const search =
   $("#search");
 
+
 if (search) {
+
   search.addEventListener(
     "input",
     renderContestants
   );
+
 }
 
 
@@ -2380,7 +2181,9 @@ if (search) {
 const category =
   $("#category");
 
+
 if (category) {
+
   category.addEventListener(
     "change",
     () => {
@@ -2388,20 +2191,28 @@ if (category) {
       const selected =
         category.value;
 
-      $$("#pills button").forEach(
-        button => {
-          button.classList.toggle(
-            "active",
-            (button.dataset.cat ||
-              "") ===
-              selected
-          );
-        }
-      );
+
+      $$("#pills button")
+        .forEach(
+          button => {
+
+            button.classList.toggle(
+              "active",
+              (
+                button.dataset.cat ||
+                ""
+              ) === selected
+            );
+
+          }
+        );
+
 
       renderContestants();
+
     }
   );
+
 }
 
 
@@ -2410,22 +2221,30 @@ if (category) {
 ========================================================= */
 
 function closeMobileMenu() {
+
   const mobileMenu =
     $("#mobileMenu");
 
+
   if (mobileMenu) {
+
     mobileMenu.style.display =
       "none";
+
   }
+
 
   const menuButton =
     $("#menuBtn");
 
+
   if (menuButton) {
+
     menuButton.setAttribute(
       "aria-expanded",
       "false"
     );
+
   }
 }
 
@@ -2433,7 +2252,9 @@ function closeMobileMenu() {
 const menuButton =
   $("#menuBtn");
 
+
 if (menuButton) {
+
   menuButton.addEventListener(
     "click",
     () => {
@@ -2441,25 +2262,31 @@ if (menuButton) {
       const mobileMenu =
         $("#mobileMenu");
 
+
       if (!mobileMenu) {
         return;
       }
 
+
       const isOpen =
         mobileMenu.style.display ===
         "block";
+
 
       mobileMenu.style.display =
         isOpen
           ? "none"
           : "block";
 
+
       menuButton.setAttribute(
         "aria-expanded",
         String(!isOpen)
       );
+
     }
   );
+
 }
 
 
@@ -2467,10 +2294,12 @@ $$(
   "#mobileMenu a"
 ).forEach(
   link => {
+
     link.addEventListener(
       "click",
       closeMobileMenu
     );
+
   }
 );
 
@@ -2494,18 +2323,22 @@ document.addEventListener(
     const voteModal =
       $("#voteModal");
 
+
     if (
       voteModal &&
       !voteModal.classList.contains(
         "hidden"
       )
     ) {
+
       closeModal();
+
     }
 
 
     const successModal =
       $("#successModal");
+
 
     if (
       successModal &&
@@ -2513,11 +2346,14 @@ document.addEventListener(
         "hidden"
       )
     ) {
+
       closeSuccessModal();
+
     }
 
 
     closeMobileMenu();
+
   }
 );
 
@@ -2527,6 +2363,7 @@ document.addEventListener(
 ========================================================= */
 
 async function loadSettings() {
+
   try {
 
     const snapshot =
@@ -2547,50 +2384,27 @@ async function loadSettings() {
         ...settings,
         ...snapshot.data()
       };
+
     }
 
-  } catch (
-    error
-  ) {
+  } catch (error) {
 
     console.warn(
       "Voting settings unavailable; using safe defaults.",
       error
     );
+
   }
 
 
-  settingsLoaded =
-    true;
-
-
   setStatus();
-
   renderCategories();
-
   renderContestants();
-
-  openDirectContestant();
 }
 
 
 /* =========================================================
    FIREBASE CONTESTANTS
-=========================================================
-
-   Admin collection:
-
-       contestants
-
-   Public page:
-
-       contestants
-
-   Only:
-
-       published !== false
-
-   are displayed.
 ========================================================= */
 
 onSnapshot(
@@ -2618,10 +2432,6 @@ onSnapshot(
         );
 
 
-    contestantsLoaded =
-      true;
-
-
     console.log(
       "NAPAS contestants loaded:",
       contestants
@@ -2629,18 +2439,24 @@ onSnapshot(
 
 
     renderCategories();
-
     renderContestants();
 
 
-    /*
-      If somebody opened a contestant
-      share link, open that contestant
-      as soon as Firebase finishes loading.
-    */
+    /* -----------------------------------------------------
+       If somebody opened a contestant's shared link,
+       automatically take them to that contestant.
+    ----------------------------------------------------- */
 
-    openDirectContestant();
+    if (
+      getDirectContestantId()
+    ) {
+
+      openDirectContestant();
+
+    }
+
   },
+
 
   error => {
 
@@ -2653,11 +2469,13 @@ onSnapshot(
     const empty =
       $("#empty");
 
+
     if (empty) {
 
       empty.classList.remove(
         "hidden"
       );
+
 
       empty.innerHTML = `
         <div class="empty-state">
@@ -2665,7 +2483,9 @@ onSnapshot(
           Please refresh the page.
         </div>
       `;
+
     }
+
   }
 );
 
@@ -2677,19 +2497,3 @@ onSnapshot(
 loadSettings();
 
 handlePaymentReturn();
-
-
-/* =========================================================
-   GLOBAL CONTESTANT SHARE FUNCTION
-=========================================================
-
-   This makes the share functionality
-   available to other UI elements if
-   we add them later.
-========================================================= */
-
-window.NAPAS = {
-  shareContestant,
-  copyContestantLink,
-  buildContestantLink
-};
