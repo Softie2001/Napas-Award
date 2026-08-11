@@ -2493,6 +2493,93 @@ onSnapshot(
 
 
 /* =========================================================
+   COUNTDOWN — NAPAS AWARD NIGHT
+   Voting countdown ends on 17 August 2026
+========================================================= */
+
+const COUNTDOWN_END =
+  new Date("2026-08-17T23:59:59+01:00").getTime();
+
+function updateCountdown() {
+
+  const now =
+    Date.now();
+
+  const distance =
+    COUNTDOWN_END - now;
+
+  const days =
+    Math.max(
+      0,
+      Math.floor(
+        distance / (1000 * 60 * 60 * 24)
+      )
+    );
+
+  const hours =
+    Math.max(
+      0,
+      Math.floor(
+        (distance / (1000 * 60 * 60)) % 24
+      )
+    );
+
+  const minutes =
+    Math.max(
+      0,
+      Math.floor(
+        (distance / (1000 * 60)) % 60
+      )
+    );
+
+  const seconds =
+    Math.max(
+      0,
+      Math.floor(
+        (distance / 1000) % 60
+      )
+    );
+
+  setText(
+    "#days",
+    String(days).padStart(2, "0")
+  );
+
+  setText(
+    "#hours",
+    String(hours).padStart(2, "0")
+  );
+
+  setText(
+    "#minutes",
+    String(minutes).padStart(2, "0")
+  );
+
+  setText(
+    "#seconds",
+    String(seconds).padStart(2, "0")
+  );
+
+  if (distance <= 0) {
+    clearInterval(countdownTimer);
+
+    setText("#days", "00");
+    setText("#hours", "00");
+    setText("#minutes", "00");
+    setText("#seconds", "00");
+  }
+}
+
+const countdownTimer =
+  setInterval(
+    updateCountdown,
+    1000
+  );
+
+updateCountdown();
+
+
+/* =========================================================
    START APPLICATION
 ========================================================= */
 
