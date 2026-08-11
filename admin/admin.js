@@ -1039,57 +1039,71 @@ async function audit(message) {
 /* =========================================================
    EDIT / ADD CONTESTANT
 ========================================================= */
-function openEdit(
-  contestant = null
-) {
+function generateUniqueContestantId() {
+  let number = contestants.length + 1;
+
+  let id = `CNT-${String(number).padStart(4, "0")}`;
+
+  while (
+    contestants.some(
+      contestant => contestant.id === id
+    )
+  ) {
+    number++;
+    id = `CNT-${String(number).padStart(4, "0")}`;
+  }
+
+  return id;
+}
+
+function openEdit(contestant = null) {
   if (!$("#modal")) {
     return;
   }
-  $("#modal").classList.remove(
-    "hidden"
-  );
+
+  $("#modal").classList.remove("hidden");
+
   $("#mt").textContent =
     contestant
       ? "Edit contestant"
       : "Add contestant";
+
   $("#eid").value =
-    contestant?.id ||
-    "";
+    contestant?.id || "";
+
   $("#name").value =
-    contestant?.name ||
-    "";
+    contestant?.name || "";
+
   $("#cid").value =
     contestant?.id ||
-    `CNT-${String(
-      contestants.length + 1
-    ).padStart(4, "0")}`;
+    generateUniqueContestantId();
+
   $("#cat").value =
     contestant?.category ||
     CATEGORIES[0];
+
   $("#nick").value =
-    contestant?.nickname ||
-    "";
+    contestant?.nickname || "";
+
   $("#bio").value =
-    contestant?.bio ||
-    "";
+    contestant?.bio || "";
+
   $("#pub").checked =
     contestant
-      ? contestant.published !==
-        false
+      ? contestant.published !== false
       : true;
+
   $("#preview").innerHTML =
     contestant?.photo
       ? `
         <img
-          src="${esc(
-            contestant.photo
-          )}"
+          src="${esc(contestant.photo)}"
           alt="Current photo"
         >
       `
       : "";
-  $("#photo").value =
-    "";
+
+  $("#photo").value = "";
 }
 /* =========================================================
    CLOSE MODAL
@@ -1240,18 +1254,103 @@ if ($("#save")) {
 /* =========================================================
    SAVE CONTESTANT
 ========================================================= */
+function generateUniqueContestantId() {
+  const existingIds = new Set(
+    contestants.map(contestant =>
+      String(contestant.id || "").trim().toUpperCase()
+    )
+  );
+  let number = 1;
+  while (true) {
+    const candidate =
+      `CNT-${String(number).padStart(4, "0")}`;
+    if (!existingIds.has(candidate)) {
+      return candidate;
+    }
+    number++;
+  }
+}
 if ($("#form")) {
   $("#form").addEventListener(
     "submit",
     async event => {
       event.preventDefault();
       try {
+        /* =================================================
+           FIND WHETHER THIS IS AN EDIT
+        ================================================= */
+        const editingId =
+          $("#eid").value.trim();
         const oldContestant =
           contestants.find(
             contestant =>
-              contestant.id ===
-              $("#eid").value
+              contestant.id === editingId
           );
+        /* =================================================
+           CONTESTANT ID
+        ================================================= */
+        let id =
+          $("#cid").value.trim();
+        /*
+         * When adding a NEW contestant, automatically
+         * generate a genuinely unused ID.
+         */
+        if (!oldContestant) {
+          if (!id) {
+            id =
+              generateUniqueContestantId();
+          }
+          /*
+           * Prevent accidental overwriting of an
+           * existing contestant.
+           */
+          const duplicate =
+            contestants.find(
+              contestant =>
+                contestant.id === id
+            );
+          if (duplicate) {
+            throw new Error(
+              `Contestant ID ${id} already belongs to ${duplicate.name}. Please use another ID.`
+            );
+          }
+        }
+        /*
+         * When editing, keep the existing Firebase
+         * document ID. Do not allow the edit form to
+         * accidentally create/overwrite another record.
+         */
+        if (oldContestant) {
+          id = oldContestant.id;
+        }
+        if (!id) {
+          throw new Error(
+            "Contestant ID is required."
+          );
+        }
+        /* =================================================
+           CONTESTANT NAME
+        ================================================= */
+        const name =
+          $("#name").value.trim();
+        if (!name) {
+          throw new Error(
+            "Contestant name is required."
+          );
+        }
+        /* =================================================
+           CATEGORY
+        ================================================= */
+        const category =
+          $("#cat").value;
+        if (!category) {
+          throw new Error(
+            "Please select a category."
+          );
+        }
+        /* =================================================
+           PHOTO
+        ================================================= */
         let photoUrl =
           oldContestant?.photo ||
           "";
@@ -1283,10 +1382,8 @@ if ($("#form")) {
             await fetch(
               `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
               {
-                method:
-                  "POST",
-                body:
-                  formData
+                method: "POST",
+                body: formData
               }
             );
           if (!response.ok) {
@@ -1296,21 +1393,22 @@ if ($("#form")) {
           }
           const uploaded =
             await response.json();
+          if (
+            !uploaded.secure_url
+          ) {
+            throw new Error(
+              "Cloudinary did not return a valid image URL."
+            );
+          }
           photoUrl =
             uploaded.secure_url;
         }
-        const id =
-          $("#cid").value.trim();
-        if (!id) {
-          throw new Error(
-            "Contestant ID is required."
-          );
-        }
+        /* =================================================
+           CONTESTANT DATA
+        ================================================= */
         const data = {
-          name:
-            $("#name").value.trim(),
-          category:
-            $("#cat").value,
+          name,
+          category,
           nickname:
             $("#nick").value.trim(),
           bio:
@@ -1322,36 +1420,34 @@ if ($("#form")) {
           updatedAt:
             serverTimestamp()
         };
-        if (!data.name) {
-          throw new Error(
-            "Contestant name is required."
-          );
-        }
         /* =================================================
-           EXISTING CONTESTANT
+           UPDATE EXISTING CONTESTANT
         ================================================= */
         if (oldContestant) {
-          await setDoc(
+          await updateDoc(
             doc(
               db,
               "contestants",
               oldContestant.id
             ),
-            data,
-            {
-              merge: true
-            }
+            data
           );
           await audit(
-            `Updated contestant: ${
-              data.name
-            }`
+            `Updated contestant: ${data.name}`
           );
         }
         /* =================================================
-           NEW CONTESTANT
+           ADD NEW CONTESTANT
         ================================================= */
         else {
+          /*
+           * IMPORTANT:
+           * This creates a completely new Firestore
+           * document using the unique ID.
+           *
+           * It cannot overwrite an existing contestant
+           * because we checked the ID above.
+           */
           await setDoc(
             doc(
               db,
@@ -1361,16 +1457,13 @@ if ($("#form")) {
             {
               ...data,
               id,
-              votes:
-                0,
+              votes: 0,
               createdAt:
                 serverTimestamp()
             }
           );
           await audit(
-            `Added contestant: ${
-              data.name
-            }`
+            `Added contestant: ${data.name} (${id})`
           );
         }
         closeModal();
@@ -1380,7 +1473,7 @@ if ($("#form")) {
           error
         );
         alert(
-          error.message ||
+          error?.message ||
           "Unable to save contestant."
         );
       }
