@@ -1,14 +1,12 @@
 import {
   initializeApp
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-
 import {
   getAuth,
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-
 import {
   getFirestore,
   collection,
@@ -19,33 +17,25 @@ import {
   onSnapshot,
   serverTimestamp,
   query,
-  orderBy
+  orderBy,
+  getDoc
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
-
 import {
   FIREBASE_CONFIG,
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_UPLOAD_PRESET,
   ADMIN_EMAIL
 } from "../js/config.js";
-
-
 /* =========================================================
    FIREBASE
 ========================================================= */
-
 const appFirebase = initializeApp(FIREBASE_CONFIG);
-
 const auth = getAuth(appFirebase);
-
 const db = getFirestore(appFirebase);
-
-
 /* =========================================================
-   CATEGORIES
+   DEFAULT CATEGORIES
 ========================================================= */
-
-const CATEGORIES = [
+let CATEGORIES = [
   "Best Graduating Student",
   "Most Outstanding Student",
   "Best Dressed (Male)",
@@ -67,33 +57,22 @@ const CATEGORIES = [
   "Blogger of the Year",
   "Brand of the Year"
 ];
-
-
 /* =========================================================
    STATE
 ========================================================= */
-
 let contestants = [];
-
 let settings = {
   votingOpen: true,
   votePrice: 100
 };
-
 let unsubscribeStarted = false;
-
-
 /* =========================================================
    HELPERS
 ========================================================= */
-
 const $ = selector =>
   document.querySelector(selector);
-
 const $$ = selector =>
   [...document.querySelectorAll(selector)];
-
-
 function esc(value) {
   return String(value ?? "").replace(
     /[&<>"']/g,
@@ -106,177 +85,216 @@ function esc(value) {
     })[character]
   );
 }
-
-
+/* =========================================================
+   FIREBASE CATEGORY SYSTEM
+========================================================= */
+async function loadCategories() {
+  try {
+    const categoryRef =
+      doc(
+        db,
+        "settings",
+        "categories"
+      );
+    const snapshot =
+      await getDoc(categoryRef);
+    if (snapshot.exists()) {
+      const data =
+        snapshot.data();
+      if (
+        Array.isArray(
+          data.categories
+        ) &&
+        data.categories.length > 0
+      ) {
+        CATEGORIES =
+          data.categories
+            .map(category =>
+              String(category).trim()
+            )
+            .filter(Boolean);
+      }
+    } else {
+      /*
+       * First installation:
+       * create the shared category
+       * document in Firestore.
+       */
+      await setDoc(
+        categoryRef,
+        {
+          categories: CATEGORIES,
+          updatedAt:
+            serverTimestamp()
+        },
+        {
+          merge: true
+        }
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Category loading error:",
+      error
+    );
+  }
+}
+/* =========================================================
+   SAVE CATEGORIES TO FIRESTORE
+========================================================= */
+async function saveCategories() {
+  try {
+    await setDoc(
+      doc(
+        db,
+        "settings",
+        "categories"
+      ),
+      {
+        categories: CATEGORIES,
+        updatedAt:
+          serverTimestamp()
+      },
+      {
+        merge: true
+      }
+    );
+    await audit(
+      "NAPAS voting categories updated."
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      "Category save error:",
+      error
+    );
+    return false;
+  }
+}
 /* =========================================================
    PAGE NAVIGATION
 ========================================================= */
-
 function showPage(page) {
-
   $$(".page").forEach(section => {
     section.classList.toggle(
       "active",
       section.id === page
     );
   });
-
-
   $$(".nav-item").forEach(button => {
     button.classList.toggle(
       "active",
       button.dataset.page === page
     );
   });
-
-
   const activeButton =
-    $(`.nav-item[data-page="${page}"]`);
-
-  if (activeButton && $("#title")) {
+    $(
+      `.nav-item[data-page="${page}"]`
+    );
+  if (
+    activeButton &&
+    $("#title")
+  ) {
     $("#title").textContent =
       activeButton.textContent.trim();
   }
-
-
   if ($("#sidebar")) {
-    $("#sidebar").classList.remove("open");
+    $("#sidebar").classList.remove(
+      "open"
+    );
   }
 }
-
-
 /* =========================================================
    LOGIN
 ========================================================= */
-
-const loginForm = $("#loginForm");
-
+const loginForm =
+  $("#loginForm");
 if (loginForm) {
-
   loginForm.addEventListener(
     "submit",
     async event => {
-
       event.preventDefault();
-
-
       const email =
         $("#email").value.trim();
-
       const password =
         $("#password").value;
-
-
-      $("#error").textContent = "";
-
-
-      if (!email || !password) {
+      $("#error").textContent =
+        "";
+      if (
+        !email ||
+        !password
+      ) {
         $("#error").textContent =
           "Please enter your email and password.";
-
         return;
       }
-
-
       const submitButton =
         loginForm.querySelector(
           'button[type="submit"]'
         );
-
-
       if (submitButton) {
-        submitButton.disabled = true;
+        submitButton.disabled =
+          true;
         submitButton.textContent =
           "Signing in...";
       }
-
-
       try {
-
         const credential =
           await signInWithEmailAndPassword(
             auth,
             email,
             password
           );
-
-
         const user =
           credential.user;
-
-
         if (
           !user.email ||
           user.email.toLowerCase() !==
             ADMIN_EMAIL.toLowerCase()
         ) {
-
           await signOut(auth);
-
           throw new Error(
             "This account is not authorised for the NAPAS admin portal."
           );
         }
-
-
-        /*
-          Do not manually redirect here.
-
-          onAuthStateChanged() below will
-          automatically show the dashboard.
-        */
-
       } catch (error) {
-
         console.error(
           "Admin login error:",
           error
         );
-
-
         if (
           error.code ===
           "auth/invalid-credential"
         ) {
-
           $("#error").textContent =
             "Incorrect email or password.";
-
         } else if (
           error.code ===
           "auth/user-not-found"
         ) {
-
           $("#error").textContent =
             "No administrator account exists with this email.";
-
         } else if (
           error.code ===
           "auth/wrong-password"
         ) {
-
           $("#error").textContent =
             "Incorrect password.";
-
         } else if (
           error.code ===
           "auth/invalid-email"
         ) {
-
           $("#error").textContent =
             "Please enter a valid email address.";
-
         } else {
-
           $("#error").textContent =
             error.message ||
             "Unable to sign in.";
         }
-
       } finally {
-
         if (submitButton) {
-          submitButton.disabled = false;
+          submitButton.disabled =
+            false;
           submitButton.textContent =
             "Sign in securely";
         }
@@ -284,77 +302,52 @@ if (loginForm) {
     }
   );
 }
-
-
 /* =========================================================
    AUTH STATE
 ========================================================= */
-
 onAuthStateChanged(
   auth,
   user => {
-
     const allowed =
       !!user &&
       !!user.email &&
       user.email.toLowerCase() ===
         ADMIN_EMAIL.toLowerCase();
-
-
     if ($("#login")) {
       $("#login").classList.toggle(
         "hidden",
         allowed
       );
     }
-
-
     if ($("#app")) {
       $("#app").classList.toggle(
         "hidden",
         !allowed
       );
     }
-
-
     if (allowed) {
-
       if ($("#who")) {
         $("#who").textContent =
           user.email;
       }
-
-
       if (!unsubscribeStarted) {
         startAdminPortal();
       }
-
     } else {
-
-      /*
-        If someone is signed out or is not
-        the authorised administrator,
-        the login screen stays visible.
-      */
-
       if ($("#who")) {
-        $("#who").textContent = "";
+        $("#who").textContent =
+          "";
       }
     }
   }
 );
-
-
 /* =========================================================
    LOGOUT
 ========================================================= */
-
 if ($("#logout")) {
-
   $("#logout").addEventListener(
     "click",
     async () => {
-
       try {
         await signOut(auth);
       } catch (error) {
@@ -366,18 +359,13 @@ if ($("#logout")) {
     }
   );
 }
-
-
 /* =========================================================
    MOBILE MENU
 ========================================================= */
-
 if ($("#menu")) {
-
   $("#menu").addEventListener(
     "click",
     () => {
-
       if ($("#sidebar")) {
         $("#sidebar").classList.toggle(
           "open"
@@ -386,170 +374,123 @@ if ($("#menu")) {
     }
   );
 }
-
-
 /* =========================================================
    NAVIGATION BUTTONS
 ========================================================= */
-
 $$(".nav-item").forEach(button => {
-
   button.addEventListener(
     "click",
     () => {
-
       showPage(
         button.dataset.page
       );
-
     }
   );
-
 });
-
-
 $$("[data-page-jump]").forEach(button => {
-
   button.addEventListener(
     "click",
     () => {
-
       showPage(
         button.dataset.pageJump
       );
-
     }
   );
-
 });
-
-
 /* =========================================================
    START ADMIN PORTAL
 ========================================================= */
-
-function startAdminPortal() {
-
-  unsubscribeStarted = true;
-
-
-  /* Categories */
-
+async function startAdminPortal() {
+  unsubscribeStarted =
+    true;
+  /*
+   * Load categories from Firebase
+   * before rendering category controls.
+   */
+  await loadCategories();
+  /* =======================================================
+     CATEGORY DROPDOWN
+  ======================================================= */
   if ($("#cat")) {
-
     $("#cat").innerHTML =
       CATEGORIES
         .map(
           category =>
-            `<option value="${esc(category)}">
-              ${esc(category)}
-            </option>`
+            `<option value="${esc(category)}">${esc(category)}</option>`
         )
         .join("");
   }
-
-
   if ($("#filter")) {
-
     $("#filter").innerHTML =
-      `<option value="">
-        All categories
-      </option>` +
+      `<option value="">All categories</option>` +
       CATEGORIES
         .map(
           category =>
-            `<option value="${esc(category)}">
-              ${esc(category)}
-            </option>`
+            `<option value="${esc(category)}">${esc(category)}</option>`
         )
         .join("");
   }
-
-
   renderCategories();
-
-
-  /* Contestants listener */
-
+  /* =======================================================
+     CONTESTANTS LISTENER
+  ======================================================= */
   onSnapshot(
     collection(
       db,
       "contestants"
     ),
-
     snapshot => {
-
       contestants =
         snapshot.docs.map(
           documentSnapshot => ({
-            id: documentSnapshot.id,
+            id:
+              documentSnapshot.id,
             ...documentSnapshot.data()
           })
         );
-
-
       render();
-
     },
-
     error => {
-
       console.error(
         "Contestants listener error:",
         error
       );
-
     }
   );
-
-
-  /* Voting settings listener */
-
+  /* =======================================================
+     VOTING SETTINGS LISTENER
+  ======================================================= */
   onSnapshot(
     doc(
       db,
       "settings",
       "voting"
     ),
-
     snapshot => {
-
       if (snapshot.exists()) {
-
         settings = {
           ...settings,
           ...snapshot.data()
         };
-
       }
-
-
       if ($("#vp")) {
-
         $("#vp").value =
-          settings.votePrice || 100;
+          settings.votePrice ||
+          100;
       }
-
-
       renderVotingState();
-
       render();
-
     },
-
     error => {
-
       console.error(
         "Voting settings error:",
         error
       );
-
     }
   );
-
-
-  /* Activity listener */
-
+  /* =======================================================
+     ACTIVITY LISTENER
+  ======================================================= */
   onSnapshot(
     query(
       collection(
@@ -561,58 +502,47 @@ function startAdminPortal() {
         "desc"
       )
     ),
-
     snapshot => {
-
       if (!$("#logs")) {
         return;
       }
-
-
       $("#logs").innerHTML =
         snapshot.docs
           .slice(0, 20)
-          .map(documentSnapshot => {
-
-            const activity =
-              documentSnapshot.data();
-
-            return `
-              <p>
-                <strong>
-                  ${esc(
-                    activity.message ||
-                    "Administrative activity"
-                  )}
-                </strong>
-
-                <br>
-
-                <small>
-                  ${
-                    activity.createdAt?.toDate
-                      ? activity.createdAt
-                          .toDate()
-                          .toLocaleString()
-                      : "Recent activity"
-                  }
-                </small>
-              </p>
-            `;
-
-          })
+          .map(
+            documentSnapshot => {
+              const activity =
+                documentSnapshot.data();
+              return `
+                <p>
+                  <strong>
+                    ${esc(
+                      activity.message ||
+                      "Administrative activity"
+                    )}
+                  </strong>
+                  <br>
+                  <small>
+                    ${
+                      activity.createdAt?.toDate
+                        ? activity.createdAt
+                            .toDate()
+                            .toLocaleString()
+                        : "Recent activity"
+                    }
+                  </small>
+                </p>
+              `;
+            }
+          )
           .join("") ||
         `<p>No recent activity.</p>`;
-
     },
-
     error => {
-
       console.warn(
         "Activity log unavailable:",
         error
       );
-
       if ($("#logs")) {
         $("#logs").innerHTML =
           "<p>Activity is not available yet.</p>";
@@ -620,123 +550,97 @@ function startAdminPortal() {
     }
   );
 }
-
-
 /* =========================================================
-   CATEGORIES
+   CATEGORIES DISPLAY
 ========================================================= */
-
 function renderCategories() {
-
   if (!$("#cats")) {
     return;
   }
-
-
   $("#cats").innerHTML =
     CATEGORIES
       .map(
         (category, index) => {
-
           const count =
             contestants.filter(
               contestant =>
                 contestant.category ===
                 category
             ).length;
-
-
           return `
             <article class="category-card">
-
               <span class="number">
-                ${String(index + 1).padStart(2, "0")}
+                ${String(
+                  index + 1
+                ).padStart(2, "0")}
               </span>
-
               <h3>
                 ${esc(category)}
               </h3>
-
               <p>
                 ${count}
-                contestant${count === 1 ? "" : "s"}
+                contestant${
+                  count === 1
+                    ? ""
+                    : "s"
+                }
                 registered
               </p>
-
             </article>
           `;
-
         }
       )
       .join("");
 }
-
-
 /* =========================================================
    CONTESTANTS
 ========================================================= */
-
 function render() {
-
   if (!$("#rows")) {
     return;
   }
-
-
   const search =
     ($("#search")?.value || "")
       .toLowerCase()
       .trim();
-
-
   const category =
-    $("#filter")?.value || "";
-
-
+    $("#filter")?.value ||
+    "";
   const state =
-    $("#state")?.value || "";
-
-
+    $("#state")?.value ||
+    "";
   const filtered =
     contestants.filter(
       contestant => {
-
         const text =
           `
           ${contestant.name || ""}
           ${contestant.id || ""}
           `
             .toLowerCase();
-
-
         const published =
-          contestant.published !== false;
-
-
+          contestant.published !==
+          false;
         return (
           (!search ||
             text.includes(search)) &&
-
           (!category ||
             contestant.category ===
               category) &&
-
           (!state ||
-            (state === "yes"
-              ? published
-              : !published))
+            (
+              state === "yes"
+                ? published
+                : !published
+            ))
         );
-
       }
     );
-
-
   $("#rows").innerHTML =
     filtered
       .map(
         contestant => `
           <tr>
-
             <td>
               <strong>
                 ${esc(
@@ -745,20 +649,17 @@ function render() {
                 )}
               </strong>
             </td>
-
             <td>
               ${esc(
                 contestant.category ||
                 ""
               )}
             </td>
-
             <td>
               ${esc(
                 contestant.id
               )}
             </td>
-
             <td>
               <span
                 class="pill ${
@@ -774,7 +675,6 @@ function render() {
                 }
               </span>
             </td>
-
             <td>
               <strong>
                 ${Number(
@@ -782,19 +682,19 @@ function render() {
                 ).toLocaleString()}
               </strong>
             </td>
-
             <td>
-
               <div class="actions">
-
                 <button
-                  data-edit="${esc(contestant.id)}"
+                  data-edit="${esc(
+                    contestant.id
+                  )}"
                 >
                   Edit
                 </button>
-
                 <button
-                  data-pub="${esc(contestant.id)}"
+                  data-pub="${esc(
+                    contestant.id
+                  )}"
                 >
                   ${
                     contestant.published !== false
@@ -802,17 +702,15 @@ function render() {
                       : "Publish"
                   }
                 </button>
-
                 <button
-                  data-del="${esc(contestant.id)}"
+                  data-del="${esc(
+                    contestant.id
+                  )}"
                 >
                   Delete
                 </button>
-
               </div>
-
             </td>
-
           </tr>
         `
       )
@@ -824,62 +722,49 @@ function render() {
         </td>
       </tr>
     `;
-
-
-  /* Edit */
-
+  /* =======================================================
+     EDIT
+  ======================================================= */
   $$("[data-edit]").forEach(
     button => {
-
       button.addEventListener(
         "click",
         () => {
-
           const contestant =
             contestants.find(
               item =>
                 item.id ===
                 button.dataset.edit
             );
-
-
           if (contestant) {
-            openEdit(contestant);
+            openEdit(
+              contestant
+            );
           }
-
         }
       );
-
     }
   );
-
-
-  /* Publish */
-
+  /* =======================================================
+     PUBLISH
+  ======================================================= */
   $$("[data-pub]").forEach(
     button => {
-
       button.addEventListener(
         "click",
         async () => {
-
           const contestant =
             contestants.find(
               item =>
                 item.id ===
                 button.dataset.pub
             );
-
-
           if (!contestant) {
             return;
           }
-
-
           const newPublished =
-            contestant.published === false;
-
-
+            contestant.published ===
+            false;
           await updateDoc(
             doc(
               db,
@@ -889,13 +774,10 @@ function render() {
             {
               published:
                 newPublished,
-
               updatedAt:
                 serverTimestamp()
             }
           );
-
-
           await audit(
             `${
               newPublished
@@ -905,47 +787,34 @@ function render() {
               contestant.name
             }`
           );
-
         }
       );
-
     }
   );
-
-
-  /* Delete */
-
+  /* =======================================================
+     DELETE
+  ======================================================= */
   $$("[data-del]").forEach(
     button => {
-
       button.addEventListener(
         "click",
         async () => {
-
           const contestant =
             contestants.find(
               item =>
                 item.id ===
                 button.dataset.del
             );
-
-
           if (!contestant) {
             return;
           }
-
-
           const confirmed =
             confirm(
               `Delete ${contestant.name}? This removes the contestant record.`
             );
-
-
           if (!confirmed) {
             return;
           }
-
-
           await deleteDoc(
             doc(
               db,
@@ -953,23 +822,18 @@ function render() {
               contestant.id
             )
           );
-
-
           await audit(
             `Deleted contestant: ${
               contestant.name
             }`
           );
-
         }
       );
-
     }
   );
-
-
-  /* Dashboard statistics */
-
+  /* =======================================================
+     DASHBOARD STATISTICS
+  ======================================================= */
   const totalVotes =
     contestants.reduce(
       (sum, contestant) =>
@@ -979,104 +843,87 @@ function render() {
         ),
       0
     );
-
-
   if ($("#sc")) {
     $("#sc").textContent =
-      contestants.length.toLocaleString();
+      contestants.length
+        .toLocaleString();
   }
-
-
   if ($("#sv")) {
     $("#sv").textContent =
       totalVotes.toLocaleString();
   }
-
-
   if ($("#sr")) {
-
     const revenue =
       totalVotes *
       Number(
-        settings.votePrice || 100
+        settings.votePrice ||
+        100
       );
-
-
     $("#sr").textContent =
       `₦${revenue.toLocaleString()}`;
   }
-
-
   if ($("#ss")) {
     $("#ss").textContent =
       settings.votingOpen
         ? "OPEN"
         : "CLOSED";
   }
-
-
   if ($("#statusHint")) {
     $("#statusHint").textContent =
       settings.votingOpen
         ? "Voters can vote"
         : "Voting is currently closed";
   }
-
-
   if ($("#headerStatus")) {
     $("#headerStatus").textContent =
       settings.votingOpen
         ? "Voting open"
         : "Voting closed";
   }
-
-
-  /* Results */
-
+  /* =======================================================
+     RESULTS
+  ======================================================= */
   const ranked =
     [...contestants].sort(
       (a, b) =>
-        Number(b.votes || 0) -
-        Number(a.votes || 0)
+        Number(
+          b.votes || 0
+        ) -
+        Number(
+          a.votes || 0
+        )
     );
-
-
   if ($("#result")) {
-
     $("#result").innerHTML =
       ranked
         .map(
           (contestant, index) => `
             <tr>
-
               <td>
                 <strong>
                   #${index + 1}
                 </strong>
               </td>
-
               <td>
                 ${esc(
                   contestant.name ||
                   "Unnamed"
                 )}
               </td>
-
               <td>
                 ${esc(
                   contestant.category ||
                   ""
                 )}
               </td>
-
               <td>
                 <strong>
                   ${Number(
-                    contestant.votes || 0
+                    contestant.votes ||
+                    0
                   ).toLocaleString()}
                 </strong>
               </td>
-
             </tr>
           `
         )
@@ -1089,110 +936,82 @@ function render() {
         </tr>
       `;
   }
-
-
-  /* Top contestants */
-
+  /* =======================================================
+     TOP CONTESTANTS
+  ======================================================= */
   if ($("#topContestants")) {
-
     $("#topContestants").innerHTML =
       ranked
         .slice(0, 5)
         .map(
           (contestant, index) => `
             <div class="top-row">
-
               <span class="rank">
                 #${index + 1}
               </span>
-
               <div>
-
                 <strong>
                   ${esc(
                     contestant.name ||
                     "Unnamed"
                   )}
                 </strong>
-
                 <small>
                   ${esc(
                     contestant.category ||
                     ""
                   )}
                 </small>
-
               </div>
-
               <strong>
                 ${Number(
-                  contestant.votes || 0
+                  contestant.votes ||
+                  0
                 ).toLocaleString()}
               </strong>
-
             </div>
           `
         )
         .join("") ||
       "No contestants yet.";
   }
-
-
   renderCategories();
 }
-
-
 /* =========================================================
    VOTING STATUS
 ========================================================= */
-
 function renderVotingState() {
-
   if (!$("#votingStateCard")) {
     return;
   }
-
-
   const open =
     !!settings.votingOpen;
-
-
   $("#votingStateCard").className =
     `voting-state ${
-      open ? "open" : "closed"
+      open
+        ? "open"
+        : "closed"
     }`;
-
-
   $("#votingStateLabel").textContent =
     open
       ? "Voting is OPEN"
       : "Voting is CLOSED";
-
-
   $("#votingStateDescription").textContent =
     open
       ? "Voters can submit votes."
       : "The public voting page should not accept votes.";
-
-
   if ($("#toggle")) {
-
     $("#toggle").textContent =
       open
         ? "Close voting"
         : "Open voting";
   }
 }
-
-
 /* =========================================================
    AUDIT LOG
 ========================================================= */
-
 async function audit(message) {
-
   try {
-
     await setDoc(
       doc(
         db,
@@ -1208,189 +1027,139 @@ async function audit(message) {
           ADMIN_EMAIL
       }
     );
-
   } catch (error) {
-
     console.warn(
       "Audit log failed:",
       error
     );
-
   }
 }
-
-
 /* =========================================================
    EDIT / ADD CONTESTANT
 ========================================================= */
-
-function openEdit(contestant = null) {
-
+function openEdit(
+  contestant = null
+) {
   if (!$("#modal")) {
     return;
   }
-
-
   $("#modal").classList.remove(
     "hidden"
   );
-
-
   $("#mt").textContent =
     contestant
       ? "Edit contestant"
       : "Add contestant";
-
-
   $("#eid").value =
-    contestant?.id || "";
-
-
+    contestant?.id ||
+    "";
   $("#name").value =
-    contestant?.name || "";
-
-
+    contestant?.name ||
+    "";
   $("#cid").value =
     contestant?.id ||
     `CNT-${String(
       contestants.length + 1
     ).padStart(4, "0")}`;
-
-
   $("#cat").value =
     contestant?.category ||
     CATEGORIES[0];
-
-
   $("#nick").value =
-    contestant?.nickname || "";
-
-
+    contestant?.nickname ||
+    "";
   $("#bio").value =
-    contestant?.bio || "";
-
-
+    contestant?.bio ||
+    "";
   $("#pub").checked =
     contestant
-      ? contestant.published !== false
+      ? contestant.published !==
+        false
       : true;
-
-
   $("#preview").innerHTML =
     contestant?.photo
       ? `
         <img
-          src="${esc(contestant.photo)}"
+          src="${esc(
+            contestant.photo
+          )}"
           alt="Current photo"
         >
       `
       : "";
-
-
-  $("#photo").value = "";
+  $("#photo").value =
+    "";
 }
-
-
 /* =========================================================
    CLOSE MODAL
 ========================================================= */
-
 function closeModal() {
-
   if ($("#modal")) {
-
     $("#modal").classList.add(
       "hidden"
     );
-
   }
 }
-
-
 if ($("#add")) {
   $("#add").addEventListener(
     "click",
     () => openEdit()
   );
 }
-
-
 if ($("#x")) {
   $("#x").addEventListener(
     "click",
     closeModal
   );
 }
-
-
 if ($("#cancel")) {
   $("#cancel").addEventListener(
     "click",
     closeModal
   );
 }
-
-
 if ($("#modal")) {
-
   $("#modal").addEventListener(
     "click",
     event => {
-
       if (
         event.target.id ===
         "modal"
       ) {
         closeModal();
       }
-
     }
   );
 }
-
-
 /* =========================================================
    SEARCH / FILTERS
 ========================================================= */
-
 if ($("#search")) {
   $("#search").addEventListener(
     "input",
     render
   );
 }
-
-
 if ($("#filter")) {
   $("#filter").addEventListener(
     "change",
     render
   );
 }
-
-
 if ($("#state")) {
   $("#state").addEventListener(
     "change",
     render
   );
 }
-
-
 /* =========================================================
    VOTING TOGGLE
 ========================================================= */
-
 if ($("#toggle")) {
-
   $("#toggle").addEventListener(
     "click",
     async () => {
-
       const newState =
         !settings.votingOpen;
-
-
       await setDoc(
         doc(
           db,
@@ -1400,12 +1169,11 @@ if ($("#toggle")) {
         {
           votingOpen:
             newState,
-
           votePrice:
             Number(
-              settings.votePrice || 100
+              settings.votePrice ||
+              100
             ),
-
           updatedAt:
             serverTimestamp()
         },
@@ -1413,8 +1181,6 @@ if ($("#toggle")) {
           merge: true
         }
       );
-
-
       await audit(
         `Voting ${
           newState
@@ -1422,35 +1188,26 @@ if ($("#toggle")) {
             : "closed"
         }`
       );
-
     }
   );
 }
-
-
 /* =========================================================
    SAVE VOTE PRICE
 ========================================================= */
-
 if ($("#save")) {
-
   $("#save").addEventListener(
     "click",
     async () => {
-
       const price =
         Math.max(
           1,
           Number(
             $("#vp").value
-          ) || 100
+          ) ||
+          100
         );
-
-
       settings.votePrice =
         price;
-
-
       await setDoc(
         doc(
           db,
@@ -1460,10 +1217,8 @@ if ($("#save")) {
         {
           votePrice:
             price,
-
           votingOpen:
             !!settings.votingOpen,
-
           updatedAt:
             serverTimestamp()
         },
@@ -1471,160 +1226,109 @@ if ($("#save")) {
           merge: true
         }
       );
-
-
       await audit(
         `Vote price updated to ₦${price.toLocaleString()}`
       );
-
-
       alert(
         "Voting price saved."
       );
     }
   );
 }
-
-
 /* =========================================================
    SAVE CONTESTANT
 ========================================================= */
-
 if ($("#form")) {
-
   $("#form").addEventListener(
     "submit",
     async event => {
-
       event.preventDefault();
-
-
       try {
-
         const oldContestant =
           contestants.find(
             contestant =>
               contestant.id ===
               $("#eid").value
           );
-
-
         let photoUrl =
           oldContestant?.photo ||
           "";
-
-
         const file =
           $("#photo").files[0];
-
-
-        /* Upload photo */
-
+        /* =================================================
+           CLOUDINARY PHOTO UPLOAD
+        ================================================= */
         if (file) {
-
           if (
             !CLOUDINARY_CLOUD_NAME ||
             !CLOUDINARY_UPLOAD_PRESET
           ) {
-
             throw new Error(
               "Cloudinary settings are missing from js/config.js."
             );
-
           }
-
-
           const formData =
             new FormData();
-
-
           formData.append(
             "file",
             file
           );
-
-
           formData.append(
             "upload_preset",
             CLOUDINARY_UPLOAD_PRESET
           );
-
-
           const response =
             await fetch(
               `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
               {
-                method: "POST",
-                body: formData
+                method:
+                  "POST",
+                body:
+                  formData
               }
             );
-
-
           if (!response.ok) {
             throw new Error(
               "Image upload failed."
             );
           }
-
-
           const uploaded =
             await response.json();
-
-
           photoUrl =
             uploaded.secure_url;
         }
-
-
         const id =
           $("#cid").value.trim();
-
-
         if (!id) {
-
           throw new Error(
             "Contestant ID is required."
           );
         }
-
-
         const data = {
-
           name:
             $("#name").value.trim(),
-
           category:
             $("#cat").value,
-
           nickname:
             $("#nick").value.trim(),
-
           bio:
             $("#bio").value.trim(),
-
           photo:
             photoUrl,
-
           published:
             $("#pub").checked,
-
           updatedAt:
             serverTimestamp()
         };
-
-
         if (!data.name) {
-
           throw new Error(
             "Contestant name is required."
           );
         }
-
-
-        /* Existing contestant */
-
+        /* =================================================
+           EXISTING CONTESTANT
+        ================================================= */
         if (oldContestant) {
-
           await setDoc(
             doc(
               db,
@@ -1636,21 +1340,16 @@ if ($("#form")) {
               merge: true
             }
           );
-
-
           await audit(
             `Updated contestant: ${
               data.name
             }`
           );
-
         }
-
-
-        /* New contestant */
-
+        /* =================================================
+           NEW CONTESTANT
+        ================================================= */
         else {
-
           await setDoc(
             doc(
               db,
@@ -1659,64 +1358,50 @@ if ($("#form")) {
             ),
             {
               ...data,
-
               id,
-
-              votes: 0,
-
+              votes:
+                0,
               createdAt:
                 serverTimestamp()
             }
           );
-
-
           await audit(
             `Added contestant: ${
               data.name
             }`
           );
         }
-
-
         closeModal();
-
       } catch (error) {
-
         console.error(
           "Save contestant error:",
           error
         );
-
-
         alert(
           error.message ||
           "Unable to save contestant."
         );
       }
-
     }
   );
 }
-
-
 /* =========================================================
    EXPORT RESULTS
 ========================================================= */
-
 if ($("#export")) {
-
   $("#export").addEventListener(
     "click",
     () => {
-
       const ranked =
         [...contestants].sort(
           (a, b) =>
-            Number(b.votes || 0) -
-            Number(a.votes || 0)
+            Number(
+              b.votes || 0
+            ) -
+            Number(
+              a.votes || 0
+            )
         );
-
-
       const rows = [
         [
           "Rank",
@@ -1724,18 +1409,19 @@ if ($("#export")) {
           "Category",
           "Votes"
         ],
-
         ...ranked.map(
-          (contestant, index) => [
+          (
+            contestant,
+            index
+          ) => [
             index + 1,
             contestant.name,
             contestant.category,
-            contestant.votes || 0
+            contestant.votes ||
+              0
           ]
         )
       ];
-
-
       const csv =
         rows
           .map(
@@ -1743,17 +1429,16 @@ if ($("#export")) {
               row
                 .map(
                   value =>
-                    `"${String(value)
-                      .replaceAll(
-                        '"',
-                        '""'
-                      )}"`
+                    `"${String(
+                      value
+                    ).replaceAll(
+                      '"',
+                      '""'
+                    )}"`
                 )
                 .join(",")
           )
           .join("\n");
-
-
       const blob =
         new Blob(
           [csv],
@@ -1762,28 +1447,19 @@ if ($("#export")) {
               "text/csv;charset=utf-8;"
           }
         );
-
-
       const url =
         URL.createObjectURL(
           blob
         );
-
-
       const link =
         document.createElement(
           "a"
         );
-
-
-      link.href = url;
-
+      link.href =
+        url;
       link.download =
         "napas-results.csv";
-
       link.click();
-
-
       URL.revokeObjectURL(
         url
       );
