@@ -171,53 +171,137 @@ function isAuthorisedAdmin(user) {
 
 async function loadCategories() {
   try {
-    const categoryRef =
-      doc(
-        db,
-        "settings",
-        "categories"
-      );
-
-    const snapshot =
-      await getDoc(categoryRef);
-
+    const categoryRef = doc(
+      db,
+      "settings",
+      "categories"
+    );
+    const snapshot = await getDoc(categoryRef);
+    /*
+     * These are the categories that must always exist.
+     * Firebase categories will be preserved and these
+     * will be added if they are missing.
+     */
+    const requiredCategories = [
+      "Best Graduating Student",
+      "Most Outstanding Student",
+      "Best Dressed (Male)",
+      "Best Dressed (Female)",
+      "Most Fashionable (SWD)",
+      "Player of the Year",
+      "Best Class Governor",
+      "Most Influential Student",
+      "Content Creator of the Year",
+      "Most Popular Student",
+      "Ambassador of the Year",
+      "Techie of the Year",
+      "Entrepreneur of the Year",
+      "Best Clerk of the Year",
+      "Best Assistant Governor of the Year",
+      "Miss Ebony",
+      "Most Outspoken",
+      "Coach of the Year",
+      "Face of Accountancy",
+      "Mrs Accountancy",
+      "Blogger of the Year",
+      "Brand of the Year"
+    ];
+    let existingCategories = [];
     if (snapshot.exists()) {
-      const data =
-        snapshot.data();
-
-      if (
-        Array.isArray(
-          data.categories
-        ) &&
-        data.categories.length > 0
-      ) {
-        CATEGORIES =
-          data.categories
-            .map(category =>
-              String(category).trim()
-            )
-            .filter(Boolean);
+      const data = snapshot.data();
+      if (Array.isArray(data.categories)) {
+        existingCategories = data.categories
+          .map(category =>
+            String(category).trim()
+          )
+          .filter(Boolean);
       }
-    } else {
-      await setDoc(
-        categoryRef,
-        {
-          categories:
-            CATEGORIES,
-
-          updatedAt:
-            serverTimestamp()
-        },
-        {
-          merge: true
-        }
-      );
     }
+    /*
+     * Start with everything already saved in Firebase.
+     * This prevents existing categories from disappearing.
+     */
+    const mergedCategories = [
+      ...existingCategories
+    ];
+    /*
+     * Add any required category that doesn't already exist.
+     */
+    requiredCategories.forEach(category => {
+      const exists = mergedCategories.some(
+        existing =>
+          existing.toLowerCase() ===
+          category.toLowerCase()
+      );
+      if (!exists) {
+        mergedCategories.push(category);
+      }
+    });
+    /*
+     * Remove accidental duplicates while preserving order.
+     */
+    const uniqueCategories = [];
+    mergedCategories.forEach(category => {
+      const exists = uniqueCategories.some(
+        existing =>
+          existing.toLowerCase() ===
+          category.toLowerCase()
+      );
+      if (!exists) {
+        uniqueCategories.push(category);
+      }
+    });
+    CATEGORIES = uniqueCategories;
+    /*
+     * Keep Firebase synchronized with the final list.
+     */
+    await setDoc(
+      categoryRef,
+      {
+        categories: CATEGORIES,
+        updatedAt: serverTimestamp()
+      },
+      {
+        merge: true
+      }
+    );
+    console.log(
+      "NAPAS categories loaded:",
+      CATEGORIES
+    );
   } catch (error) {
     console.error(
       "Category loading error:",
       error
     );
+    /*
+     * If Firebase temporarily fails, still keep the
+     * built-in category list available.
+     */
+    CATEGORIES = [
+      "Best Graduating Student",
+      "Most Outstanding Student",
+      "Best Dressed (Male)",
+      "Best Dressed (Female)",
+      "Most Fashionable (SWD)",
+      "Player of the Year",
+      "Best Class Governor",
+      "Most Influential Student",
+      "Content Creator of the Year",
+      "Most Popular Student",
+      "Ambassador of the Year",
+      "Techie of the Year",
+      "Entrepreneur of the Year",
+      "Best Clerk of the Year",
+      "Best Assistant Governor of the Year",
+      "Miss Ebony",
+      "Most Outspoken",
+      "Coach of the Year",
+      "Face of Accountancy",
+      "Mrs Accountancy",
+      "Blogger of the Year",
+      "Brand of the Year"
+    ];
   }
 }
 
