@@ -37,21 +37,21 @@ const FALLBACK_CATEGORIES = [
   "Best Dressed (Male)",
   "Best Dressed (Female)",
   "Most Fashionable (SWD)",
-  "NAPAS Player of the Year",
-  "Best Class Rep",
+  "Player of the Year",
+  "Best Class Governor",
   "Most Influential Student",
-  "Best Content Creator",
+  "Content Creator of the Year",
   "Most Popular Student",
   "Ambassador of the Year",
   "Best Graphics Designer of the Year",
-  "Best Entrepreneur of the Year",
+  "Entrepreneur of the Year",
   "Best Clerk of the Year",
   "Best Assistant Governor of the Year",
   "Miss Ebony",
-  "Best Outspoken",
-  "Best Coach of the Year",
-  "Best Blogger of the Year",
-  "Best Brand of the Year"
+  "Most Outspoken",
+  "Coach of the Year",
+  "Blogger of the Year",
+  "Brand of the Year"
 ];
 
 /* =========================================================
