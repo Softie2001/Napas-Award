@@ -12,6 +12,7 @@ interface ServiceAccount {
 }
 
 const ALLOWED_ORIGINS = [
+  "https://napasawardvote.name.ng",
   "https://softie2001.github.io",
   "https://napas-award.com",
   "http://localhost:8787",
@@ -662,7 +663,7 @@ async function initializePayment(
           reference,
 
           callback_url:
-            "https://napas-award.com/?payment=return",
+            "https://napasawardvote.name.ng/?payment=return",
 
           metadata: {
             contestantId,
