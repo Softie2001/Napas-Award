@@ -50,19 +50,19 @@ const CATEGORIES = [
   "Best Class Governor",
   "Miss Accountancy",
   "Mrs Accountancy",
-  "Best Player of the Year",
+  "Player of the Year",
   "Ambassador of the Year",
   "Best Graphics Designer of the Year",
   "Best Course Rep of the Year",
-  "Best Entrepreneur of the Year",
+  "Entrepreneur of the Year",
   "Best Clerk of the Year",
   "Best Assistant Governor of the Year",
   "Miss Ebony",
-  "Best Outspoken",
-  "Best Coach of the Year",
-  "Best Content Creator of the Year",
-  "Best Blogger of the Year",
-  "Best Brand of the Year"
+  "Most Outspoken",
+  "Coach of the Year",
+  "Content Creator of the Year",
+  "Blogger of the Year",
+  "Brand of the Year"
 ];
 
 
