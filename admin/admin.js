@@ -1,8 +1,7 @@
 import {
-  initializeApp
-} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import {
   getAuth,
+  setPersistence,
+  browserLocalPersistence,
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut
@@ -31,6 +30,15 @@ import {
 ========================================================= */
 const appFirebase = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(appFirebase);
+setPersistence(
+  auth,
+  browserLocalPersistence
+).catch(error => {
+  console.error(
+    "Auth persistence error:",
+    error
+  );
+});
 const db = getFirestore(appFirebase);
 /* =========================================================
    DEFAULT CATEGORIES
