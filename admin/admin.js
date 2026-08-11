@@ -46,21 +46,24 @@ const db = getFirestore(appFirebase);
 ========================================================= */
 
 const CATEGORIES = [
-  "Most Fashionable",
-  "Best Class Governor",
-  "Miss Accountancy",
-  "Mrs Accountancy",
+  "Best Graduating Student",
+  "Most Outstanding Student",
+  "Best Dressed (Male)",
+  "Best Dressed (Female)",
+  "Most Fashionable (SWD)",
   "Player of the Year",
+  "Best Class Governor",
+  "Most Influential Student",
+  "Content Creator of the Year",
+  "Most Popular Student",
   "Ambassador of the Year",
-  "Best Graphics Designer of the Year",
-  "Best Course Rep of the Year",
+  "Techie of the Year",
   "Entrepreneur of the Year",
   "Best Clerk of the Year",
   "Best Assistant Governor of the Year",
   "Miss Ebony",
   "Most Outspoken",
   "Coach of the Year",
-  "Content Creator of the Year",
   "Blogger of the Year",
   "Brand of the Year"
 ];
