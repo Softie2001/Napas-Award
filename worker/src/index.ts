@@ -18,7 +18,7 @@ const ALLOWED_ORIGINS = [
 
 const DEFAULT_VOTE_PRICE = 100;
 const MAX_VOTES_PER_PAYMENT = 1000;
-const MAX_RECONCILIATION_REFERENCES = 5;
+const MAX_RECONCILIATION_REFERENCES = 2;
 
 /* =========================================================
    FIREBASE TOKEN CACHE
