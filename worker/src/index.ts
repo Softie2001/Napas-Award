@@ -21,12 +21,11 @@ const MAX_VOTES_PER_PAYMENT = 1000;
 
 /*
  * IMPORTANT:
- * Reconciliation intentionally processes only a small number
- * of Paystack transactions per request.
- *
- * This prevents Cloudflare's "Too many subrequests" error.
+ * Keep reconciliation batches small.
+ * A single reconciliation request must not scan hundreds
+ * of Paystack transactions.
  */
-const RECONCILIATION_BATCH_SIZE = 10;
+const RECONCILIATION_PAGE_SIZE = 20;
 
 function getOrigin(request: Request): string | null {
   return request.headers.get("Origin");
@@ -105,21 +104,29 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function createFirebaseAccessToken(env: Env): Promise<string> {
+async function createFirebaseAccessToken(
+  env: Env,
+): Promise<string> {
   const clientEmail = env.FIREBASE_CLIENT_EMAIL?.trim();
   const projectId = env.FIREBASE_PROJECT_ID?.trim();
   const privateKey = env.FIREBASE_PRIVATE_KEY;
 
   if (!clientEmail) {
-    throw new Error("FIREBASE_CLIENT_EMAIL is not configured.");
+    throw new Error(
+      "FIREBASE_CLIENT_EMAIL is not configured.",
+    );
   }
 
   if (!projectId) {
-    throw new Error("FIREBASE_PROJECT_ID is not configured.");
+    throw new Error(
+      "FIREBASE_PROJECT_ID is not configured.",
+    );
   }
 
   if (!privateKey) {
-    throw new Error("FIREBASE_PRIVATE_KEY is not configured.");
+    throw new Error(
+      "FIREBASE_PRIVATE_KEY is not configured.",
+    );
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -131,14 +138,17 @@ async function createFirebaseAccessToken(env: Env): Promise<string> {
 
   const payload = {
     iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/datastore",
-    aud: "https://oauth2.googleapis.com/token",
+    scope:
+      "https://www.googleapis.com/auth/datastore",
+    aud:
+      "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
   };
 
   const unsignedToken =
-    `${base64UrlEncode(JSON.stringify(header))}.` +
+    base64UrlEncode(JSON.stringify(header)) +
+    "." +
     base64UrlEncode(JSON.stringify(payload));
 
   const key = await crypto.subtle.importKey(
@@ -159,7 +169,9 @@ async function createFirebaseAccessToken(env: Env): Promise<string> {
   );
 
   const jwt =
-    `${unsignedToken}.${base64UrlEncode(signature)}`;
+    unsignedToken +
+    "." +
+    base64UrlEncode(signature);
 
   const response = await fetch(
     "https://oauth2.googleapis.com/token",
@@ -180,7 +192,10 @@ async function createFirebaseAccessToken(env: Env): Promise<string> {
   const data: any = await response.json();
 
   if (!response.ok || !data.access_token) {
-    console.error("Firebase token error:", data);
+    console.error(
+      "Firebase token error:",
+      data,
+    );
 
     throw new Error(
       data.error_description ||
@@ -220,13 +235,17 @@ function firestoreBoolean(value: boolean) {
   };
 }
 
-function firestoreTimestamp(date = new Date()) {
+function firestoreTimestamp(
+  date = new Date(),
+) {
   return {
     timestampValue: date.toISOString(),
   };
 }
 
-function extractFirestoreValue(field: any): any {
+function extractFirestoreValue(
+  field: any,
+): any {
   if (!field) return null;
 
   if ("stringValue" in field) {
@@ -257,49 +276,54 @@ async function firestoreRequest(
   path: string,
   options: RequestInit = {},
 ) {
-  const token = await createFirebaseAccessToken(env);
+  const token =
+    await createFirebaseAccessToken(env);
 
-  const projectId = encodeURIComponent(
-    env.FIREBASE_PROJECT_ID.trim(),
-  );
+  const projectId =
+    encodeURIComponent(
+      env.FIREBASE_PROJECT_ID.trim(),
+    );
 
   const url =
-    `https://firestore.googleapis.com/v1/projects/${projectId}` +
-    `/databases/(default)/documents/${path}`;
+    "https://firestore.googleapis.com/v1/projects/" +
+    projectId +
+    "/databases/(default)/documents/" +
+    path;
 
   return fetch(url, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+      Authorization:
+        "Bearer " + token,
+      "Content-Type":
+        "application/json",
       ...(options.headers || {}),
     },
   });
 }
 
 /* =========================================================
-   VOTING SETTINGS
+   SETTINGS
    ========================================================= */
 
 async function getVotingSettings(env: Env) {
   try {
-    const response = await firestoreRequest(
-      env,
-      "settings/voting",
-    );
-
-    if (!response.ok) {
-      console.warn(
-        "Voting settings unavailable. Using defaults.",
+    const response =
+      await firestoreRequest(
+        env,
+        "settings/voting",
       );
 
+    if (!response.ok) {
       return {
         votingOpen: true,
-        votePrice: DEFAULT_VOTE_PRICE,
+        votePrice:
+          DEFAULT_VOTE_PRICE,
       };
     }
 
-    const document: any = await response.json();
+    const document: any =
+      await response.json();
 
     const votingOpen =
       extractFirestoreValue(
@@ -312,7 +336,9 @@ async function getVotingSettings(env: Env) {
       );
 
     const votePrice =
-      Number.isFinite(Number(rawPrice)) &&
+      Number.isFinite(
+        Number(rawPrice),
+      ) &&
       Number(rawPrice) > 0
         ? Number(rawPrice)
         : DEFAULT_VOTE_PRICE;
@@ -329,7 +355,8 @@ async function getVotingSettings(env: Env) {
 
     return {
       votingOpen: true,
-      votePrice: DEFAULT_VOTE_PRICE,
+      votePrice:
+        DEFAULT_VOTE_PRICE,
     };
   }
 }
@@ -350,12 +377,15 @@ async function getContestant(
   }
 
   /*
-   * First try the actual Firestore document ID.
+   * First try Firestore document ID.
    */
-  const direct = await firestoreRequest(
-    env,
-    `contestants/${encodeURIComponent(cleanId)}`,
-  );
+  const direct =
+    await firestoreRequest(
+      env,
+      `contestants/${encodeURIComponent(
+        cleanId,
+      )}`,
+    );
 
   if (direct.ok) {
     const document: any =
@@ -363,15 +393,18 @@ async function getContestant(
 
     return {
       ...document,
-      documentName: document.name,
+      documentName:
+        document.name,
       documentId:
-        document.name?.split("/").pop() ||
+        document.name
+          ?.split("/")
+          .pop() ||
         cleanId,
     };
   }
 
   /*
-   * Fallback: search common identifier fields.
+   * Fallback identifier search.
    */
   const token =
     await createFirebaseAccessToken(env);
@@ -382,8 +415,9 @@ async function getContestant(
     );
 
   const queryUrl =
-    `https://firestore.googleapis.com/v1/projects/${projectId}` +
-    `/databases/(default)/documents:runQuery`;
+    "https://firestore.googleapis.com/v1/projects/" +
+    projectId +
+    "/databases/(default)/documents:runQuery";
 
   for (const field of [
     "id",
@@ -392,12 +426,12 @@ async function getContestant(
     "contestantCode",
     "slug",
   ]) {
-    const response = await fetch(
-      queryUrl,
-      {
+    const response =
+      await fetch(queryUrl, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization:
+            "Bearer " + token,
           "Content-Type":
             "application/json",
         },
@@ -416,15 +450,15 @@ async function getContestant(
                 },
                 op: "EQUAL",
                 value: {
-                  stringValue: cleanId,
+                  stringValue:
+                    cleanId,
                 },
               },
             },
             limit: 1,
           },
         }),
-      },
-    );
+      });
 
     if (!response.ok) {
       continue;
@@ -441,9 +475,12 @@ async function getContestant(
     if (document) {
       return {
         ...document,
-        documentName: document.name,
+        documentName:
+          document.name,
         documentId:
-          document.name?.split("/").pop() ||
+          document.name
+            ?.split("/")
+            .pop() ||
           cleanId,
       };
     }
@@ -460,10 +497,13 @@ async function getPayment(
   env: Env,
   reference: string,
 ) {
-  const response = await firestoreRequest(
-    env,
-    `payments/${encodeURIComponent(reference)}`,
-  );
+  const response =
+    await firestoreRequest(
+      env,
+      `payments/${encodeURIComponent(
+        reference,
+      )}`,
+    );
 
   if (!response.ok) {
     return null;
@@ -493,7 +533,8 @@ async function paystackRequest(
       ...options,
       headers: {
         Authorization:
-          `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+          "Bearer " +
+          env.PAYSTACK_SECRET_KEY,
         "Content-Type":
           "application/json",
         ...(options.headers || {}),
@@ -503,7 +544,7 @@ async function paystackRequest(
 }
 
 /* =========================================================
-   PAYMENT DATA HELPERS
+   PAYMENT HELPERS
    ========================================================= */
 
 function getPaymentMetadata(
@@ -532,10 +573,9 @@ function getVotesFromTransaction(
   const metadata =
     getPaymentMetadata(transaction);
 
-  const votes =
-    Math.floor(
-      Number(metadata.votes || 0),
-    );
+  const votes = Math.floor(
+    Number(metadata.votes || 0),
+  );
 
   return Number.isInteger(votes)
     ? votes
@@ -568,13 +608,15 @@ function isNapasTransaction(
 
   const source =
     String(
-      getPaymentMetadata(transaction)
-        ?.source || "",
+      getPaymentMetadata(
+        transaction,
+      )?.source || "",
     ).toUpperCase();
 
   return (
     reference.startsWith("NAPAS-") ||
-    source === "NAPAS_AWARD_VOTING"
+    source ===
+      "NAPAS_AWARD_VOTING"
   );
 }
 
@@ -616,13 +658,17 @@ async function initializePayment(
 
   const votes =
     Math.floor(
-      Number(body?.votes || 0),
+      Number(
+        body?.votes || 0,
+      ),
     );
 
   const email =
     String(
       body?.email || "",
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
 
   const voterName =
     String(
@@ -747,9 +793,10 @@ async function initializePayment(
         method: "POST",
         body: JSON.stringify({
           email,
-          amount: Math.round(
-            amountNaira * 100,
-          ),
+          amount:
+            Math.round(
+              amountNaira * 100,
+            ),
           currency: "NGN",
           reference,
           callback_url:
@@ -800,7 +847,8 @@ async function initializePayment(
     {
       success: true,
       reference,
-      amount: amountNaira,
+      amount:
+        amountNaira,
       votes,
       contestantId,
       firestoreContestantId:
@@ -844,8 +892,8 @@ async function creditVotes(
     );
 
   /*
-   * Existing successfully credited payment:
-   * NEVER increment again.
+   * Existing correctly-marked payment:
+   * never increment twice.
    */
   if (
     existing &&
@@ -865,13 +913,12 @@ async function creditVotes(
     }
 
     /*
-     * Legacy payment without a marker.
-     * Do not guess during normal verification.
+     * Legacy record with no marker:
+     * don't guess.
      */
     return {
       alreadyCredited: true,
       repaired: false,
-      legacy: true,
     };
   }
 
@@ -896,12 +943,17 @@ async function creditVotes(
     env.FIREBASE_PROJECT_ID.trim();
 
   const commitUrl =
-    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
-    `/databases/(default)/documents:commit`;
+    "https://firestore.googleapis.com/v1/projects/" +
+    encodeURIComponent(
+      projectId,
+    ) +
+    "/databases/(default)/documents:commit";
 
   const paymentDocument =
-    `projects/${projectId}` +
-    `/databases/(default)/documents/payments/${payment.reference}`;
+    `projects/${projectId}/databases/(default)/documents/payments/${payment.reference}`;
+
+  const contestantDocument =
+    contestant.documentName;
 
   const paymentFields: Record<
     string,
@@ -965,15 +1017,15 @@ async function creditVotes(
       ),
 
     votesCredited:
-      firestoreBoolean(true),
+      firestoreBoolean(
+        true,
+      ),
 
     creditedAt:
       firestoreTimestamp(),
 
     createdAt:
-      existing?.fields?.createdAt
-        ? existing.fields.createdAt
-        : firestoreTimestamp(),
+      firestoreTimestamp(),
   };
 
   if (
@@ -1007,7 +1059,7 @@ async function creditVotes(
         method: "POST",
         headers: {
           Authorization:
-            `Bearer ${token}`,
+            "Bearer " + token,
           "Content-Type":
             "application/json",
         },
@@ -1017,7 +1069,7 @@ async function creditVotes(
             {
               transform: {
                 document:
-                  contestant.documentName,
+                  contestantDocument,
                 fieldTransforms: [
                   {
                     fieldPath:
@@ -1131,7 +1183,8 @@ async function verifyPayment(
       return json(
         {
           success: true,
-          alreadyCredited: true,
+          alreadyCredited:
+            true,
           reference,
         },
         200,
@@ -1143,7 +1196,9 @@ async function verifyPayment(
   const paystackResponse =
     await paystackRequest(
       env,
-      `/transaction/verify/${encodeURIComponent(reference)}`,
+      `/transaction/verify/${encodeURIComponent(
+        reference,
+      )}`,
     );
 
   const paystackData: any =
@@ -1152,8 +1207,8 @@ async function verifyPayment(
   if (
     !paystackResponse.ok ||
     !paystackData.status ||
-    paystackData.data
-      ?.status !== "success"
+    paystackData.data?.status !==
+      "success"
   ) {
     return json(
       {
@@ -1186,7 +1241,6 @@ async function verifyPayment(
 
   if (
     !contestantId ||
-    !Number.isInteger(votes) ||
     votes < 1 ||
     votes > MAX_VOTES_PER_PAYMENT
   ) {
@@ -1202,9 +1256,7 @@ async function verifyPayment(
   }
 
   const settings =
-    await getVotingSettings(
-      env,
-    );
+    await getVotingSettings(env);
 
   const historicalPrice =
     getHistoricalVotePrice(
@@ -1218,9 +1270,8 @@ async function verifyPayment(
     100;
 
   if (
-    Number(
-      transaction.amount,
-    ) !== expectedAmount
+    Number(transaction.amount) !==
+    expectedAmount
   ) {
     return json(
       {
@@ -1342,7 +1393,9 @@ function hexToBytes(
   hex: string,
 ) {
   if (
-    !/^[0-9a-fA-F]+$/.test(hex) ||
+    !/^[0-9a-fA-F]+$/.test(
+      hex,
+    ) ||
     hex.length % 2 !== 0
   ) {
     return null;
@@ -1376,10 +1429,7 @@ async function verifyPaystackSignature(
   signature: string,
   secret: string,
 ) {
-  if (
-    !signature ||
-    !secret
-  ) {
+  if (!signature || !secret) {
     return false;
   }
 
@@ -1510,8 +1560,6 @@ async function handlePaystackWebhook(
       {
         success: true,
         ignored: true,
-        reason:
-          "Not a NAPAS transaction.",
       },
       200,
     );
@@ -1534,7 +1582,6 @@ async function handlePaystackWebhook(
 
   if (
     !contestantId ||
-    !Number.isInteger(votes) ||
     votes < 1 ||
     votes > MAX_VOTES_PER_PAYMENT
   ) {
@@ -1549,9 +1596,7 @@ async function handlePaystackWebhook(
   }
 
   const settings =
-    await getVotingSettings(
-      env,
-    );
+    await getVotingSettings(env);
 
   const historicalPrice =
     getHistoricalVotePrice(
@@ -1565,9 +1610,8 @@ async function handlePaystackWebhook(
     100;
 
   if (
-    Number(
-      transaction.amount,
-    ) !== expectedAmount
+    Number(transaction.amount) !==
+    expectedAmount
   ) {
     return json(
       {
@@ -1610,8 +1654,7 @@ async function handlePaystackWebhook(
             ),
           phone:
             String(
-              metadata.phone ||
-                "",
+              metadata.phone || "",
             ),
           paystackTransactionId:
             String(
@@ -1660,7 +1703,9 @@ function isReconciliationAuthorized(
   request: Request,
   env: Env,
 ) {
-  if (!env.RECONCILIATION_KEY) {
+  if (
+    !env.RECONCILIATION_KEY
+  ) {
     return false;
   }
 
@@ -1692,17 +1737,50 @@ function isReconciliationAuthorized(
 }
 
 /* =========================================================
-   PAYSTACK TRANSACTION LIST
+   SINGLE PAYSTACK TRANSACTION
    ========================================================= */
 
-async function getPaystackTransactionPage(
+async function getPaystackTransaction(
+  env: Env,
+  reference: string,
+) {
+  const response =
+    await paystackRequest(
+      env,
+      `/transaction/verify/${encodeURIComponent(
+        reference,
+      )}`,
+    );
+
+  const data: any =
+    await response.json();
+
+  if (
+    !response.ok ||
+    !data.status ||
+    !data.data
+  ) {
+    throw new Error(
+      data.message ||
+        "Unable to verify Paystack transaction.",
+    );
+  }
+
+  return data.data;
+}
+
+/* =========================================================
+   PAYSTACK TRANSACTION PAGE
+   ========================================================= */
+
+async function getPaystackPage(
   env: Env,
   page: number,
 ) {
   const response =
     await paystackRequest(
       env,
-      `/transaction?perPage=${RECONCILIATION_BATCH_SIZE}&page=${page}&status=success`,
+      `/transaction?perPage=${RECONCILIATION_PAGE_SIZE}&page=${page}&status=success`,
     );
 
   const data: any =
@@ -1714,19 +1792,250 @@ async function getPaystackTransactionPage(
   ) {
     throw new Error(
       data.message ||
-        `Unable to load Paystack transaction page ${page}.`,
+        `Unable to load Paystack page ${page}.`,
     );
   }
 
-  const transactions =
-    Array.isArray(data.data)
-      ? data.data
-      : [];
-
   return {
-    transactions,
+    transactions:
+      Array.isArray(data.data)
+        ? data.data
+        : [],
     meta:
       data.meta || {},
+  };
+}
+
+/* =========================================================
+   RECONCILE ONE PAYMENT
+   ========================================================= */
+
+async function reconcileOneTransaction(
+  env: Env,
+  transaction: any,
+  dryRun: boolean,
+) {
+  const reference =
+    String(
+      transaction?.reference ||
+        "",
+    ).trim();
+
+  if (!reference) {
+    return {
+      action: "skipped",
+      reason:
+        "Missing transaction reference.",
+    };
+  }
+
+  if (
+    transaction.status !==
+    "success"
+  ) {
+    return {
+      action: "skipped",
+      reason:
+        "Transaction is not successful.",
+    };
+  }
+
+  if (
+    !isNapasTransaction(
+      transaction,
+    )
+  ) {
+    return {
+      action: "skipped",
+      reason:
+        "Not a NAPAS transaction.",
+    };
+  }
+
+  const metadata =
+    getPaymentMetadata(
+      transaction,
+    );
+
+  const contestantId =
+    getContestantIdFromTransaction(
+      transaction,
+    );
+
+  const votes =
+    getVotesFromTransaction(
+      transaction,
+    );
+
+  if (
+    !contestantId ||
+    votes < 1 ||
+    votes > MAX_VOTES_PER_PAYMENT
+  ) {
+    return {
+      action: "skipped",
+      reason:
+        "Incomplete payment metadata.",
+    };
+  }
+
+  const settings =
+    await getVotingSettings(env);
+
+  const historicalPrice =
+    getHistoricalVotePrice(
+      transaction,
+      settings.votePrice,
+    );
+
+  const expectedAmount =
+    votes *
+    historicalPrice *
+    100;
+
+  if (
+    Number(transaction.amount) !==
+    expectedAmount
+  ) {
+    return {
+      action: "skipped",
+      reason:
+        "Payment amount does not match vote metadata.",
+    };
+  }
+
+  const contestant =
+    await getContestant(
+      env,
+      contestantId,
+    );
+
+  if (!contestant) {
+    return {
+      action: "failed",
+      reason:
+        `Contestant not found: ${contestantId}`,
+    };
+  }
+
+  const existing =
+    await getPayment(
+      env,
+      reference,
+    );
+
+  if (existing) {
+    const credited =
+      extractFirestoreValue(
+        existing.fields
+          ?.votesCredited,
+      );
+
+    if (credited === true) {
+      return {
+        action:
+          "alreadyCredited",
+        contestantId,
+        votes,
+      };
+    }
+
+    /*
+     * IMPORTANT:
+     *
+     * If an old payment document exists but
+     * has no votesCredited flag, we cannot safely
+     * know whether its votes were already added.
+     *
+     * Therefore we do NOT automatically increment it.
+     */
+    return {
+      action:
+        "manualReview",
+      contestantId,
+      votes,
+      reason:
+        "Payment exists in Firestore but has no votesCredited marker.",
+    };
+  }
+
+  if (dryRun) {
+    return {
+      action:
+        "wouldCredit",
+      contestantId,
+      firestoreContestantId:
+        contestant.documentId,
+      votes,
+      amount:
+        Number(
+          transaction.amount,
+        ) / 100,
+    };
+  }
+
+  const email =
+    String(
+      transaction.customer
+        ?.email || "",
+    )
+      .trim()
+      .toLowerCase();
+
+  const result =
+    await creditVotes(
+      env,
+      {
+        reference,
+        contestantId,
+        votes,
+        amount:
+          Number(
+            transaction.amount,
+          ) / 100,
+        email,
+        voterName:
+          String(
+            metadata.voterName ||
+              "",
+          ),
+        phone:
+          String(
+            metadata.phone || "",
+          ),
+        paystackTransactionId:
+          String(
+            transaction.id ||
+              "",
+          ),
+        source:
+          "RECONCILIATION",
+        historicalVotePrice:
+          historicalPrice,
+      },
+    );
+
+  if (
+    result.alreadyCredited
+  ) {
+    return {
+      action:
+        "alreadyCredited",
+      contestantId,
+      votes,
+    };
+  }
+
+  return {
+    action: "credited",
+    contestantId,
+    firestoreContestantId:
+      contestant.documentId,
+    votes,
+    amount:
+      Number(
+        transaction.amount,
+      ) / 100,
   };
 }
 
@@ -1767,7 +2076,7 @@ async function reconcilePayments(
     body = {};
   }
 
-  const requestedReference =
+  const reference =
     String(
       body?.reference || "",
     ).trim();
@@ -1776,7 +2085,72 @@ async function reconcilePayments(
     body?.dryRun === true;
 
   /*
-   * page starts at 1.
+   * MODE 1:
+   *
+   * Reconcile one exact Paystack reference.
+   *
+   * This is the safest way to repair
+   * an individual missing payment.
+   */
+  if (reference) {
+    try {
+      const transaction =
+        await getPaystackTransaction(
+          env,
+          reference,
+        );
+
+      const result =
+        await reconcileOneTransaction(
+          env,
+          transaction,
+          dryRun,
+        );
+
+      return json(
+        {
+          success: true,
+          mode: "reference",
+          reference,
+          dryRun,
+          result,
+        },
+        200,
+        origin,
+      );
+    } catch (error) {
+      return json(
+        {
+          success: false,
+          mode: "reference",
+          reference,
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        },
+        500,
+        origin,
+      );
+    }
+  }
+
+  /*
+   * MODE 2:
+   *
+   * Process ONLY ONE Paystack page.
+   *
+   * Default page = 1.
+   *
+   * You can send:
+   * {
+   *   "page": 1
+   * }
+   *
+   * then page 2, page 3, etc.
+   *
+   * This prevents the Worker from making
+   * hundreds of subrequests at once.
    */
   const page =
     Math.max(
@@ -1788,412 +2162,111 @@ async function reconcilePayments(
       ),
     );
 
-  /*
-   * If a specific reference is supplied,
-   * only that payment is checked.
-   */
-  let transactions: any[] = [];
-  let nextPage: number | null =
-    null;
-  let pageCount = 0;
-
-  if (requestedReference) {
-    const response =
-      await paystackRequest(
-        env,
-        `/transaction/verify/${encodeURIComponent(requestedReference)}`,
-      );
-
-    const data: any =
-      await response.json();
-
-    if (
-      !response.ok ||
-      !data.status ||
-      !data.data
-    ) {
-      return json(
-        {
-          success: false,
-          error:
-            data.message ||
-            "Unable to verify the requested Paystack reference.",
-        },
-        400,
-        origin,
-      );
-    }
-
-    if (
-      data.data.status ===
-        "success" &&
-      isNapasTransaction(
-        data.data,
-      )
-    ) {
-      transactions.push(
-        data.data,
-      );
-    }
-  } else {
-    const pageResult =
-      await getPaystackTransactionPage(
+  try {
+    const pageData =
+      await getPaystackPage(
         env,
         page,
       );
 
-    transactions =
-      pageResult.transactions.filter(
-        (transaction: any) =>
-          transaction?.status ===
-            "success" &&
-          isNapasTransaction(
+    const result = {
+      success: true,
+      mode: "page",
+      page,
+      pageSize:
+        RECONCILIATION_PAGE_SIZE,
+      dryRun,
+      scanned: 0,
+      credited: 0,
+      alreadyCredited: 0,
+      skipped: 0,
+      failed: 0,
+      manualReview: 0,
+      details: [] as any[],
+      nextPage:
+        pageData.transactions
+          .length >=
+        RECONCILIATION_PAGE_SIZE
+          ? page + 1
+          : null,
+    };
+
+    for (
+      const transaction of
+        pageData.transactions
+    ) {
+      result.scanned++;
+
+      try {
+        const item =
+          await reconcileOneTransaction(
+            env,
             transaction,
-          ),
-      );
-
-    pageCount = Number(
-      pageResult.meta?.pageCount ||
-        0,
-    );
-
-    /*
-     * Only tell the caller to continue
-     * if another page exists.
-     */
-    if (
-      pageCount > 0 &&
-      page < pageCount
-    ) {
-      nextPage = page + 1;
-    } else if (
-      pageResult.transactions.length >=
-      RECONCILIATION_BATCH_SIZE
-    ) {
-      nextPage = page + 1;
-    }
-  }
-
-  const result = {
-    success: true,
-    dryRun,
-    page,
-    pageSize:
-      RECONCILIATION_BATCH_SIZE,
-    pageCount,
-    nextPage,
-    hasMore:
-      nextPage !== null,
-    scanned:
-      transactions.length,
-    credited: 0,
-    repaired: 0,
-    alreadyCredited: 0,
-    skipped: 0,
-    failed: 0,
-    details: [] as any[],
-  };
-
-  /*
-   * Get current voting price once.
-   */
-  const settings =
-    await getVotingSettings(
-      env,
-    );
-
-  for (
-    const transaction of
-      transactions
-  ) {
-    const reference =
-      String(
-        transaction.reference ||
-          "",
-      ).trim();
-
-    const metadata =
-      getPaymentMetadata(
-        transaction,
-      );
-
-    const contestantId =
-      getContestantIdFromTransaction(
-        transaction,
-      );
-
-    const votes =
-      getVotesFromTransaction(
-        transaction,
-      );
-
-    const historicalPrice =
-      getHistoricalVotePrice(
-        transaction,
-        settings.votePrice,
-      );
-
-    if (
-      !reference ||
-      !contestantId ||
-      !Number.isInteger(
-        votes,
-      ) ||
-      votes < 1 ||
-      votes >
-        MAX_VOTES_PER_PAYMENT
-    ) {
-      result.skipped++;
-
-      result.details.push({
-        reference,
-        action:
-          "skipped",
-        reason:
-          "Incomplete payment metadata.",
-      });
-
-      continue;
-    }
-
-    const expectedAmount =
-      votes *
-      historicalPrice *
-      100;
-
-    if (
-      Number(
-        transaction.amount,
-      ) !== expectedAmount
-    ) {
-      result.skipped++;
-
-      result.details.push({
-        reference,
-        action:
-          "skipped",
-        contestantId,
-        votes,
-        reason:
-          "Payment amount does not match stored vote metadata.",
-      });
-
-      continue;
-    }
-
-    /*
-     * IMPORTANT:
-     * First check whether this reference already
-     * exists in Firestore.
-     */
-    let existing: any = null;
-
-    try {
-      existing =
-        await getPayment(
-          env,
-          reference,
-        );
-    } catch (error) {
-      result.failed++;
-
-      result.details.push({
-        reference,
-        action:
-          "failed",
-        reason:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-
-      continue;
-    }
-
-    if (existing) {
-      const creditedFlag =
-        extractFirestoreValue(
-          existing.fields
-            ?.votesCredited,
-        );
-
-      if (
-        creditedFlag === true
-      ) {
-        result.alreadyCredited++;
+            dryRun,
+          );
 
         result.details.push({
-          reference,
-          action:
-            "alreadyCredited",
-          contestantId,
-          votes,
+          reference:
+            transaction.reference,
+          ...item,
         });
 
-        continue;
-      }
+        switch (
+          item.action
+        ) {
+          case "credited":
+          case "wouldCredit":
+            result.credited++;
+            break;
 
-      /*
-       * Existing legacy record without
-       * votesCredited=true.
-       *
-       * We deliberately DO NOT automatically
-       * increment it because the old Worker
-       * may already have incremented the votes.
-       */
-      result.skipped++;
+          case "alreadyCredited":
+            result.alreadyCredited++;
+            break;
 
-      result.details.push({
-        reference,
-        action:
-          "manualReview",
-        contestantId,
-        votes,
-        reason:
-          "Payment exists in Firestore but has no votesCredited=true marker. Not automatically incremented to prevent double counting.",
-      });
+          case "manualReview":
+            result.manualReview++;
+            break;
 
-      continue;
-    }
+          case "failed":
+            result.failed++;
+            break;
 
-    /*
-     * No payment record exists.
-     *
-     * This is the safest case to recover.
-     */
-    if (dryRun) {
-      result.credited++;
-
-      result.details.push({
-        reference,
-        action:
-          "wouldCredit",
-        contestantId,
-        votes,
-        amount:
-          Number(
-            transaction.amount,
-          ) / 100,
-      });
-
-      continue;
-    }
-
-    try {
-      const contestant =
-        await getContestant(
-          env,
-          contestantId,
-        );
-
-      if (!contestant) {
+          default:
+            result.skipped++;
+        }
+      } catch (error) {
         result.failed++;
 
         result.details.push({
-          reference,
-          action:
-            "failed",
-          contestantId,
-          votes,
+          reference:
+            transaction.reference,
+          action: "failed",
           reason:
-            `Contestant not found: ${contestantId}`,
-        });
-
-        continue;
-      }
-
-      const credited =
-        await creditVotes(
-          env,
-          {
-            reference,
-            contestantId,
-            votes,
-            amount:
-              Number(
-                transaction.amount,
-              ) / 100,
-            email:
-              String(
-                transaction
-                  .customer
-                  ?.email || "",
-              )
-                .trim()
-                .toLowerCase(),
-            voterName:
-              String(
-                metadata.voterName ||
-                  "",
-              ),
-            phone:
-              String(
-                metadata.phone ||
-                  "",
-              ),
-            paystackTransactionId:
-              String(
-                transaction.id ||
-                  "",
-              ),
-            source:
-              "RECONCILIATION",
-            historicalVotePrice:
-              historicalPrice,
-          },
-        );
-
-      if (
-        credited.alreadyCredited
-      ) {
-        result.alreadyCredited++;
-
-        result.details.push({
-          reference,
-          action:
-            "alreadyCredited",
-          contestantId,
-          votes,
-        });
-      } else {
-        result.credited++;
-
-        result.details.push({
-          reference,
-          action:
-            "credited",
-          contestantId,
-          firestoreContestantId:
-            contestant.documentId,
-          votes,
-          amount:
-            Number(
-              transaction.amount,
-            ) / 100,
+            error instanceof Error
+              ? error.message
+              : String(error),
         });
       }
-    } catch (error) {
-      result.failed++;
+    }
 
-      result.details.push({
-        reference,
-        action:
-          "failed",
-        contestantId,
-        votes,
-        reason:
+    return json(
+      result,
+      200,
+      origin,
+    );
+  } catch (error) {
+    return json(
+      {
+        success: false,
+        error:
           error instanceof Error
             ? error.message
             : String(error),
-      });
-    }
+      },
+      500,
+      origin,
+    );
   }
-
-  return json(
-    result,
-    200,
-    origin,
-  );
 }
 
 /* =========================================================
@@ -2217,7 +2290,9 @@ export default {
         {
           status: 204,
           headers:
-            corsHeaders(origin),
+            corsHeaders(
+              origin,
+            ),
         },
       );
     }
@@ -2238,29 +2313,22 @@ export default {
           {
             service:
               "NAPAS Secure Voting Payment API",
+            status: "ok",
 
-            status:
-              "ok",
+            firebase: Boolean(
+              env.FIREBASE_CLIENT_EMAIL &&
+                env.FIREBASE_PRIVATE_KEY &&
+                env.FIREBASE_PROJECT_ID,
+            ),
 
-            firebase:
-              Boolean(
-                env.FIREBASE_CLIENT_EMAIL &&
-                  env.FIREBASE_PRIVATE_KEY &&
-                  env.FIREBASE_PROJECT_ID,
-              ),
-
-            paystack:
-              Boolean(
-                env.PAYSTACK_SECRET_KEY,
-              ),
+            paystack: Boolean(
+              env.PAYSTACK_SECRET_KEY,
+            ),
 
             reconciliation:
               Boolean(
                 env.RECONCILIATION_KEY,
               ),
-
-            reconciliationBatchSize:
-              RECONCILIATION_BATCH_SIZE,
 
             endpoints: [
               "/initialize",
@@ -2268,6 +2336,9 @@ export default {
               "/paystack-webhook",
               "/reconcile-payments",
             ],
+
+            reconciliationMode:
+              "single-reference or one-page-at-a-time",
           },
           200,
           origin,
@@ -2337,8 +2408,7 @@ export default {
       return json(
         {
           success: false,
-          error:
-            "Not found.",
+          error: "Not found.",
         },
         404,
         origin,
