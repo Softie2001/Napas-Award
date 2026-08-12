@@ -1344,7 +1344,7 @@ async function reconcilePayments(
         contestantId,
         votes,
         reason:
-          "Payment exists in Firestore but has no votesCredited marker. Not automatically incremented to avoid double-counting.",
+          "Payment exists in Firestore but has no votesCredited marker. Not automatically incremented because the previous Worker may already have counted it.",
       });
       continue;
     }
@@ -1443,6 +1443,7 @@ export default {
             ),
             paystack: Boolean(env.PAYSTACK_SECRET_KEY),
             reconciliation: Boolean(env.RECONCILIATION_KEY),
+            reconciliationEndpoint: "/reconcile-payments",
           },
           200,
           origin,
