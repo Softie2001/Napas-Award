@@ -5,16 +5,11 @@ interface Env {
   FIREBASE_PRIVATE_KEY: string;
 }
 
-interface ServiceAccount {
-  project_id: string;
-  client_email: string;
-  private_key: string;
-}
-
 const ALLOWED_ORIGINS = [
   "https://napasawardvote.name.ng",
-  "https://softie2001.github.io",
   "https://napas-award.com",
+  "https://www.napas-award.com",
+  "https://softie2001.github.io",
   "http://localhost:8787",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
@@ -22,17 +17,25 @@ const ALLOWED_ORIGINS = [
 
 const DEFAULT_VOTE_PRICE = 100;
 
+/* =========================================================
+   RESPONSE / CORS
+   ========================================================= */
+
+function getOrigin(request: Request) {
+  return request.headers.get("Origin");
+}
+
 function corsHeaders(origin: string | null) {
-  const allowed =
+  const allowedOrigin =
     origin && ALLOWED_ORIGINS.includes(origin)
       ? origin
       : ALLOWED_ORIGINS[0];
 
   return {
-    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization",
+      "Content-Type, Authorization, X-Paystack-Signature",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -52,45 +55,8 @@ function json(
   });
 }
 
-function getOrigin(request: Request) {
-  return request.headers.get("Origin");
-}
-
 /* =========================================================
-   FIREBASE SERVICE ACCOUNT
-   ========================================================= */
-
-function getFirebaseServiceAccount(env: Env): ServiceAccount {
-  if (!env.FIREBASE_PROJECT_ID) {
-    throw new Error(
-      "FIREBASE_PROJECT_ID is not configured.",
-    );
-  }
-
-  if (!env.FIREBASE_CLIENT_EMAIL) {
-    throw new Error(
-      "FIREBASE_CLIENT_EMAIL is not configured.",
-    );
-  }
-
-  if (!env.FIREBASE_PRIVATE_KEY) {
-    throw new Error(
-      "FIREBASE_PRIVATE_KEY is not configured.",
-    );
-  }
-
-  return {
-    project_id: env.FIREBASE_PROJECT_ID,
-    client_email: env.FIREBASE_CLIENT_EMAIL,
-    private_key: env.FIREBASE_PRIVATE_KEY.replace(
-      /\\n/g,
-      "\n",
-    ),
-  };
-}
-
-/* =========================================================
-   BASE64 URL HELPERS
+   BASE64 / FIREBASE AUTH
    ========================================================= */
 
 function base64UrlEncode(
@@ -113,16 +79,28 @@ function base64UrlEncode(
     .replace(/=+$/g, "");
 }
 
-function base64UrlDecode(input: string): Uint8Array {
-  const normalized = input
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(
-      Math.ceil(input.length / 4) * 4,
-      "=",
-    );
+function pemToArrayBuffer(
+  pem: string,
+): ArrayBuffer {
+  const cleaned = pem
+    .replace(/\\n/g, "\n")
+    .replace(
+      /-----BEGIN PRIVATE KEY-----/g,
+      "",
+    )
+    .replace(
+      /-----END PRIVATE KEY-----/g,
+      "",
+    )
+    .replace(/\s/g, "");
 
-  const binary = atob(normalized);
+  if (!cleaned) {
+    throw new Error(
+      "FIREBASE_PRIVATE_KEY is empty.",
+    );
+  }
+
+  const binary = atob(cleaned);
 
   const bytes = new Uint8Array(
     binary.length,
@@ -132,33 +110,39 @@ function base64UrlDecode(input: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
 
-  return bytes;
+  return bytes.buffer;
 }
 
-function pemToArrayBuffer(
-  pem: string,
-): ArrayBuffer {
-  const base64 = pem
-    .replace(
-      "-----BEGIN PRIVATE KEY-----",
-      "",
-    )
-    .replace(
-      "-----END PRIVATE KEY-----",
-      "",
-    )
-    .replace(/\s/g, "");
-
-  return base64UrlDecode(base64).buffer;
-}
-
-/* =========================================================
-   FIREBASE ACCESS TOKEN
-   ========================================================= */
-
-async function createGoogleAccessToken(
-  serviceAccount: ServiceAccount,
+async function createFirebaseAccessToken(
+  env: Env,
 ): Promise<string> {
+  const clientEmail =
+    env.FIREBASE_CLIENT_EMAIL?.trim();
+
+  const projectId =
+    env.FIREBASE_PROJECT_ID?.trim();
+
+  const privateKey =
+    env.FIREBASE_PRIVATE_KEY;
+
+  if (!clientEmail) {
+    throw new Error(
+      "FIREBASE_CLIENT_EMAIL is not configured.",
+    );
+  }
+
+  if (!projectId) {
+    throw new Error(
+      "FIREBASE_PROJECT_ID is not configured.",
+    );
+  }
+
+  if (!privateKey) {
+    throw new Error(
+      "FIREBASE_PRIVATE_KEY is not configured.",
+    );
+  }
+
   const now = Math.floor(
     Date.now() / 1000,
   );
@@ -169,7 +153,7 @@ async function createGoogleAccessToken(
   };
 
   const payload = {
-    iss: serviceAccount.client_email,
+    iss: clientEmail,
     scope:
       "https://www.googleapis.com/auth/datastore",
     aud:
@@ -191,12 +175,13 @@ async function createGoogleAccessToken(
   const unsignedToken =
     `${encodedHeader}.${encodedPayload}`;
 
-  const key =
+  const privateKeyBuffer =
+    pemToArrayBuffer(privateKey);
+
+  const cryptoKey =
     await crypto.subtle.importKey(
       "pkcs8",
-      pemToArrayBuffer(
-        serviceAccount.private_key,
-      ),
+      privateKeyBuffer,
       {
         name: "RSASSA-PKCS1-v1_5",
         hash: "SHA-256",
@@ -208,7 +193,7 @@ async function createGoogleAccessToken(
   const signature =
     await crypto.subtle.sign(
       "RSASSA-PKCS1-v1_5",
-      key,
+      cryptoKey,
       new TextEncoder().encode(
         unsignedToken,
       ),
@@ -219,55 +204,57 @@ async function createGoogleAccessToken(
       signature,
     )}`;
 
-  const response = await fetch(
-    "https://oauth2.googleapis.com/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
+  const tokenResponse =
+    await fetch(
+      "https://oauth2.googleapis.com/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type:
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          assertion: jwt,
+        }),
       },
-      body:
-        `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer` +
-        `&assertion=${encodeURIComponent(jwt)}`,
-    },
-  );
+    );
 
   const responseText =
-    await response.text();
+    await tokenResponse.text();
 
-  if (!response.ok) {
-    console.error(
-      "Google token error:",
-      responseText,
-    );
-
-    throw new Error(
-      "Unable to authenticate with Firebase.",
-    );
-  }
-
-  let data: {
-    access_token?: string;
-    error?: string;
-  };
+  let tokenData: any;
 
   try {
-    data = JSON.parse(responseText);
+    tokenData =
+      JSON.parse(responseText);
   } catch {
     throw new Error(
       "Firebase authentication returned invalid JSON.",
     );
   }
 
-  if (!data.access_token) {
+  if (!tokenResponse.ok) {
+    console.error(
+      "Firebase token error:",
+      tokenData,
+    );
+
     throw new Error(
-      data.error ||
-        "Firebase access token was not returned.",
+      tokenData.error_description ||
+        tokenData.error ||
+        "Unable to authenticate with Firebase.",
     );
   }
 
-  return data.access_token;
+  if (!tokenData.access_token) {
+    throw new Error(
+      "Firebase access token was not returned.",
+    );
+  }
+
+  return tokenData.access_token;
 }
 
 /* =========================================================
@@ -279,20 +266,19 @@ async function firestoreRequest(
   path: string,
   options: RequestInit = {},
 ) {
-  const serviceAccount =
-    getFirebaseServiceAccount(env);
-
   const accessToken =
-    await createGoogleAccessToken(
-      serviceAccount,
+    await createFirebaseAccessToken(env);
+
+  const projectId =
+    encodeURIComponent(
+      env.FIREBASE_PROJECT_ID.trim(),
     );
 
   const url =
     `https://firestore.googleapis.com/v1/projects/` +
-    `${encodeURIComponent(
-      serviceAccount.project_id,
-    )}` +
-    `/databases/(default)/documents/${path}`;
+    `${projectId}` +
+    `/databases/(default)/documents/` +
+    path;
 
   return fetch(url, {
     ...options,
@@ -327,6 +313,14 @@ function firestoreInteger(
     integerValue: String(
       Math.trunc(value),
     ),
+  };
+}
+
+function firestoreDouble(
+  value: number,
+) {
+  return {
+    doubleValue: Number(value),
   };
 }
 
@@ -370,7 +364,28 @@ function extractFirestoreValue(
     return field.timestampValue;
   }
 
+  if ("referenceValue" in field) {
+    return field.referenceValue;
+  }
+
   return null;
+}
+
+function getNumberField(
+  fields: any,
+  name: string,
+  fallback = 0,
+) {
+  const value =
+    extractFirestoreValue(
+      fields?.[name],
+    );
+
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : fallback;
 }
 
 /* =========================================================
@@ -388,6 +403,11 @@ async function getVotingSettings(
       );
 
     if (!response.ok) {
+      console.warn(
+        "Voting settings could not be loaded. Using defaults.",
+        response.status,
+      );
+
       return {
         votingOpen: true,
         votePrice:
@@ -401,17 +421,14 @@ async function getVotingSettings(
     return {
       votingOpen:
         extractFirestoreValue(
-          document.fields
-            ?.votingOpen,
+          document.fields?.votingOpen,
         ) ?? true,
 
       votePrice:
-        Number(
-          extractFirestoreValue(
-            document.fields
-              ?.votePrice,
-          ) ??
-            DEFAULT_VOTE_PRICE,
+        getNumberField(
+          document.fields,
+          "votePrice",
+          DEFAULT_VOTE_PRICE,
         ),
     };
   } catch (error) {
@@ -429,26 +446,190 @@ async function getVotingSettings(
 }
 
 /* =========================================================
-   CONTESTANT
+   CONTESTANT LOOKUP
    ========================================================= */
+
+/*
+   IMPORTANT FIX
+
+   The frontend may send a contestant ID that does not exactly
+   match the Firestore document ID.
+
+   We therefore try:
+
+   1. contestants/{contestantId}
+
+   2. Search contestants where contestantId matches
+
+   3. Search contestants where id matches
+
+   4. Search contestants where uid matches
+
+   This makes the Worker much more tolerant of the existing
+   contestant data structure.
+*/
 
 async function getContestant(
   env: Env,
   contestantId: string,
 ) {
-  const response =
-    await firestoreRequest(
-      env,
-      `contestants/${encodeURIComponent(
-        contestantId,
-      )}`,
-    );
+  const cleanId =
+    String(
+      contestantId || "",
+    ).trim();
 
-  if (!response.ok) {
+  if (!cleanId) {
     return null;
   }
 
-  return response.json<any>();
+  /* -------------------------------------------------------
+     FIRST: direct Firestore document ID
+     ------------------------------------------------------- */
+
+  try {
+    const response =
+      await firestoreRequest(
+        env,
+        `contestants/${encodeURIComponent(
+          cleanId,
+        )}`,
+      );
+
+    if (response.ok) {
+      const document =
+        await response.json<any>();
+
+      return {
+        ...document,
+        __documentId:
+          cleanId,
+      };
+    }
+  } catch (error) {
+    console.error(
+      "Direct contestant lookup failed:",
+      error,
+    );
+  }
+
+  /* -------------------------------------------------------
+     FALLBACK: query contestants collection
+     ------------------------------------------------------- */
+
+  const possibleFields = [
+    "contestantId",
+    "id",
+    "uid",
+  ];
+
+  for (const field of possibleFields) {
+    try {
+      const queryResponse =
+        await firestoreRequest(
+          env,
+          "contestants:runQuery",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              structuredQuery: {
+                from: [
+                  {
+                    collectionId:
+                      "contestants",
+                  },
+                ],
+
+                where: {
+                  fieldFilter: {
+                    field: {
+                      fieldPath: field,
+                    },
+
+                    op: "EQUAL",
+
+                    value:
+                      firestoreString(
+                        cleanId,
+                      ),
+                  },
+                },
+
+                limit: 1,
+              },
+            }),
+          },
+        );
+
+      if (!queryResponse.ok) {
+        continue;
+      }
+
+      const results =
+        await queryResponse.json<any[]>();
+
+      for (const result of results) {
+        if (
+          result?.document
+        ) {
+          const document =
+            result.document;
+
+          const name =
+            String(
+              document.name || "",
+            );
+
+          const parts =
+            name.split("/");
+
+          const documentId =
+            parts[
+              parts.length - 1
+            ];
+
+          return {
+            ...document,
+            __documentId:
+              documentId,
+          };
+        }
+      }
+    } catch (error) {
+      console.error(
+        `Contestant fallback lookup failed for ${field}:`,
+        error,
+      );
+    }
+  }
+
+  return null;
+}
+
+/* =========================================================
+   PAYMENT LOOKUP
+   ========================================================= */
+
+async function getPayment(
+  env: Env,
+  reference: string,
+) {
+  try {
+    const response =
+      await firestoreRequest(
+        env,
+        `payments/${encodeURIComponent(
+          reference,
+        )}`,
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json<any>();
+  } catch {
+    return null;
+  }
 }
 
 /* =========================================================
@@ -470,11 +651,14 @@ async function paystackRequest(
     `https://api.paystack.co${path}`,
     {
       ...options,
+
       headers: {
         Authorization:
           `Bearer ${env.PAYSTACK_SECRET_KEY}`,
+
         "Content-Type":
           "application/json",
+
         ...(options.headers || {}),
       },
     },
@@ -489,6 +673,9 @@ async function initializePayment(
   request: Request,
   env: Env,
 ) {
+  const origin =
+    getOrigin(request);
+
   let body: any;
 
   try {
@@ -499,10 +686,10 @@ async function initializePayment(
       {
         success: false,
         error:
-          "Invalid payment request.",
+          "Invalid request body.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -513,7 +700,11 @@ async function initializePayment(
     ).trim();
 
   const votes =
-    Number(body?.votes);
+    Math.floor(
+      Number(
+        body?.votes || 0,
+      ),
+    );
 
   const email =
     String(
@@ -523,6 +714,18 @@ async function initializePayment(
       .trim()
       .toLowerCase();
 
+  const voterName =
+    String(
+      body?.voterName ||
+        "",
+    ).trim();
+
+  const phone =
+    String(
+      body?.phone ||
+        "",
+    ).trim();
+
   if (!contestantId) {
     return json(
       {
@@ -531,7 +734,7 @@ async function initializePayment(
           "Contestant is required.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -544,10 +747,10 @@ async function initializePayment(
       {
         success: false,
         error:
-          "Invalid vote quantity.",
+          "Choose between 1 and 1,000 votes.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -564,7 +767,7 @@ async function initializePayment(
           "A valid email address is required.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -579,7 +782,7 @@ async function initializePayment(
           "Voting is currently closed.",
       },
       403,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -596,9 +799,13 @@ async function initializePayment(
           "Voting price is not configured.",
       },
       500,
-      getOrigin(request),
+      origin,
     );
   }
+
+  /* -------------------------------------------------------
+     FIND CONTESTANT
+     ------------------------------------------------------- */
 
   const contestant =
     await getContestant(
@@ -607,24 +814,29 @@ async function initializePayment(
     );
 
   if (!contestant) {
+    console.error(
+      "Contestant not found during initialization:",
+      contestantId,
+    );
+
     return json(
       {
         success: false,
         error:
           "Contestant not found.",
+        contestantId,
       },
       404,
-      getOrigin(request),
+      origin,
     );
   }
 
   const published =
     extractFirestoreValue(
-      contestant.fields
-        ?.published,
+      contestant.fields?.published,
     );
 
-  if (published !== true) {
+  if (published === false) {
     return json(
       {
         success: false,
@@ -632,7 +844,7 @@ async function initializePayment(
           "This contestant is not available for voting.",
       },
       403,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -647,29 +859,43 @@ async function initializePayment(
       .slice(0, 12)
       .toUpperCase()}`;
 
+  const callbackUrl =
+    "https://napasawardvote.name.ng/?payment=return";
+
   const paystackResponse =
     await paystackRequest(
       env,
       "/transaction/initialize",
       {
         method: "POST",
+
         body: JSON.stringify({
           email,
+
           amount:
             Math.round(
               amountNaira * 100,
             ),
+
           currency: "NGN",
+
           reference,
 
           callback_url:
-            "https://napasawardvote.name.ng/?payment=return",
+            callbackUrl,
 
           metadata: {
             contestantId,
+
             votes,
+
             votePrice:
               settings.votePrice,
+
+            voterName,
+
+            phone,
+
             source:
               "NAPAS_AWARD_VOTING",
           },
@@ -689,7 +915,7 @@ async function initializePayment(
       );
   } catch {
     console.error(
-      "Invalid Paystack response:",
+      "Invalid Paystack initialization response:",
       paystackText,
     );
 
@@ -700,7 +926,7 @@ async function initializePayment(
           "Paystack returned an invalid response.",
       },
       502,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -708,7 +934,13 @@ async function initializePayment(
     !paystackResponse.ok ||
     !paystackData.status ||
     !paystackData.data
+      ?.authorization_url
   ) {
+    console.error(
+      "Paystack initialization failed:",
+      paystackData,
+    );
+
     return json(
       {
         success: false,
@@ -717,32 +949,38 @@ async function initializePayment(
           "Unable to initialize payment.",
       },
       502,
-      getOrigin(request),
+      origin,
     );
   }
 
   return json(
     {
       success: true,
+
       reference,
+
       amount:
         amountNaira,
+
       votes,
+
       contestantId,
+
       authorization_url:
         paystackData.data
           .authorization_url,
+
       access_code:
         paystackData.data
           .access_code,
     },
     200,
-    getOrigin(request),
+    origin,
   );
 }
 
 /* =========================================================
-   CREDIT PAYMENT
+   CREDIT VOTES
    ========================================================= */
 
 async function creditVotes(
@@ -753,34 +991,82 @@ async function creditVotes(
     votes: number;
     amount: number;
     email: string;
+    voterName?: string;
+    phone?: string;
+    paystackTransactionId?: string;
   },
 ) {
-  const serviceAccount =
-    getFirebaseServiceAccount(env);
+  /*
+     IMPORTANT:
+
+     The payment document uses the Paystack reference as its
+     Firestore document ID.
+
+     currentDocument.exists:false makes the write atomic.
+
+     Therefore if webhook and /verify both arrive for the same
+     payment, only ONE can create the payment document and
+     increment the contestant vote count.
+  */
+
+  const serviceAccountProject =
+    env.FIREBASE_PROJECT_ID.trim();
 
   const accessToken =
-    await createGoogleAccessToken(
-      serviceAccount,
+    await createFirebaseAccessToken(
+      env,
     );
 
-  const project =
+  const projectId =
     encodeURIComponent(
-      serviceAccount.project_id,
+      serviceAccountProject,
     );
 
   const commitUrl =
-    `https://firestore.googleapis.com/v1/projects/${project}` +
+    `https://firestore.googleapis.com/v1/projects/${projectId}` +
     `/databases/(default)/documents:commit`;
 
+  /*
+     Re-resolve the contestant to get the actual Firestore
+     document ID.
+
+     This is important when contestantId is a custom ID rather
+     than the Firestore document ID.
+  */
+
+  const contestant =
+    await getContestant(
+      env,
+      payment.contestantId,
+    );
+
+  if (!contestant) {
+    throw new Error(
+      `Contestant not found while crediting votes: ${payment.contestantId}`,
+    );
+  }
+
+  const contestantDocumentId =
+    String(
+      contestant.__documentId ||
+        "",
+    ).trim();
+
+  if (!contestantDocumentId) {
+    throw new Error(
+      "Contestant document ID could not be determined.",
+    );
+  }
+
   const paymentDocument =
-    `projects/${serviceAccount.project_id}` +
+    `projects/${serviceAccountProject}` +
     `/databases/(default)/documents/payments/` +
     payment.reference;
 
   const contestantDocument =
-    `projects/${serviceAccount.project_id}` +
+    `projects/${serviceAccountProject}` +
     `/databases/(default)/documents/contestants/` +
-    payment.contestantId;
+    contestantDocumentId;
 
   const commitResponse =
     await fetch(
@@ -791,6 +1077,7 @@ async function creditVotes(
         headers: {
           Authorization:
             `Bearer ${accessToken}`,
+
           "Content-Type":
             "application/json",
         },
@@ -819,13 +1106,31 @@ async function creditVotes(
                     ),
 
                   amount:
-                    firestoreInteger(
+                    firestoreDouble(
                       payment.amount,
                     ),
 
                   email:
                     firestoreString(
                       payment.email,
+                    ),
+
+                  voterName:
+                    firestoreString(
+                      payment.voterName ||
+                        "",
+                    ),
+
+                  phone:
+                    firestoreString(
+                      payment.phone ||
+                        "",
+                    ),
+
+                  paystackTransactionId:
+                    firestoreString(
+                      payment.paystackTransactionId ||
+                        "",
                     ),
 
                   status:
@@ -873,9 +1178,18 @@ async function creditVotes(
       await commitResponse.text();
 
     console.error(
-      "Firestore commit error:",
+      "Firestore vote commit failed:",
       errorText,
     );
+
+    /*
+       If the payment document already exists, the payment was
+       already processed.
+
+       Because the payment creation and vote increment are in
+       ONE Firestore commit, the same payment cannot safely
+       increment twice.
+    */
 
     if (
       errorText.includes(
@@ -885,17 +1199,19 @@ async function creditVotes(
         "FAILED_PRECONDITION",
       )
     ) {
-      throw new Error(
-        "This payment has already been credited.",
-      );
+      return {
+        alreadyCredited: true,
+      };
     }
 
     throw new Error(
-      "Unable to record the payment.",
+      "Unable to record the payment in Firebase.",
     );
   }
 
-  return true;
+  return {
+    alreadyCredited: false,
+  };
 }
 
 /* =========================================================
@@ -906,6 +1222,9 @@ async function verifyPayment(
   request: Request,
   env: Env,
 ) {
+  const origin =
+    getOrigin(request);
+
   let body: any;
 
   try {
@@ -919,7 +1238,7 @@ async function verifyPayment(
           "Invalid verification request.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -937,9 +1256,38 @@ async function verifyPayment(
           "Payment reference is required.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
+
+  /*
+     First check whether this payment has already been credited.
+  */
+
+  const existing =
+    await getPayment(
+      env,
+      reference,
+    );
+
+  if (existing) {
+    return json(
+      {
+        success: true,
+
+        alreadyCredited:
+          true,
+
+        reference,
+      },
+      200,
+      origin,
+    );
+  }
+
+  /*
+     Ask Paystack for the authoritative transaction status.
+  */
 
   const paystackResponse =
     await paystackRequest(
@@ -960,11 +1308,6 @@ async function verifyPayment(
         paystackText,
       );
   } catch {
-    console.error(
-      "Invalid Paystack verification response:",
-      paystackText,
-    );
-
     return json(
       {
         success: false,
@@ -972,7 +1315,7 @@ async function verifyPayment(
           "Paystack returned an invalid verification response.",
       },
       502,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -985,11 +1328,12 @@ async function verifyPayment(
     return json(
       {
         success: false,
+
         error:
-          "Payment verification failed.",
+          "Payment verification failed. If you were charged, keep your Paystack reference and contact NAPAS.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
@@ -1007,23 +1351,18 @@ async function verifyPayment(
     ).trim();
 
   const votes =
-    Number(
-      metadata.votes,
+    Math.floor(
+      Number(
+        metadata.votes ||
+          0,
+      ),
     );
-
-  const email =
-    String(
-      transaction.customer
-        ?.email ||
-        "",
-    )
-      .trim()
-      .toLowerCase();
 
   if (
     !contestantId ||
     !Number.isInteger(votes) ||
-    votes < 1
+    votes < 1 ||
+    votes > 1000
   ) {
     return json(
       {
@@ -1032,12 +1371,14 @@ async function verifyPayment(
           "Payment metadata is incomplete.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
 
   const settings =
-    await getVotingSettings(env);
+    await getVotingSettings(
+      env,
+    );
 
   const expectedAmount =
     votes *
@@ -1053,12 +1394,18 @@ async function verifyPayment(
       {
         success: false,
         error:
-          "Payment amount does not match the vote quantity.",
+          "Payment amount does not match the selected votes.",
       },
       400,
-      getOrigin(request),
+      origin,
     );
   }
+
+  /*
+     IMPORTANT:
+
+     Use the improved contestant lookup.
+  */
 
   const contestant =
     await getContestant(
@@ -1067,65 +1414,91 @@ async function verifyPayment(
     );
 
   if (!contestant) {
+    console.error(
+      "Contestant no longer exists:",
+      contestantId,
+    );
+
     return json(
       {
         success: false,
+
         error:
           "Contestant no longer exists.",
+
+        contestantId,
       },
       404,
-      getOrigin(request),
+      origin,
     );
   }
 
-  try {
+  const email =
+    String(
+      transaction.customer
+        ?.email ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+
+  const result =
     await creditVotes(
       env,
       {
         reference,
+
         contestantId,
+
         votes,
+
         amount:
           Number(
             transaction.amount,
           ) / 100,
+
         email,
+
+        paystackTransactionId:
+          String(
+            transaction.id ||
+              "",
+          ),
+
+        voterName:
+          String(
+            metadata.voterName ||
+              "",
+          ),
+
+        phone:
+          String(
+            metadata.phone ||
+              "",
+          ),
       },
     );
-  } catch (error: any) {
-    if (
-      error?.message?.includes(
-        "already been credited",
-      )
-    ) {
-      return json(
-        {
-          success: true,
-          alreadyCredited:
-            true,
-          reference,
-        },
-        200,
-        getOrigin(request),
-      );
-    }
-
-    throw error;
-  }
 
   return json(
     {
       success: true,
+
       reference,
+
       contestantId,
+
       votes,
+
       amount:
         Number(
           transaction.amount,
         ) / 100,
+
+      alreadyCredited:
+        result.alreadyCredited,
     },
     200,
-    getOrigin(request),
+    origin,
   );
 }
 
@@ -1133,55 +1506,117 @@ async function verifyPayment(
    PAYSTACK WEBHOOK SIGNATURE
    ========================================================= */
 
+function timingSafeEqual(
+  a: Uint8Array,
+  b: Uint8Array,
+) {
+  if (
+    a.length !==
+    b.length
+  ) {
+    return false;
+  }
+
+  let result = 0;
+
+  for (
+    let i = 0;
+    i < a.length;
+    i++
+  ) {
+    result |=
+      a[i] ^ b[i];
+  }
+
+  return result === 0;
+}
+
+function hexToBytes(
+  hex: string,
+) {
+  if (
+    !/^[0-9a-fA-F]+$/.test(
+      hex,
+    ) ||
+    hex.length % 2 !== 0
+  ) {
+    return null;
+  }
+
+  const bytes =
+    new Uint8Array(
+      hex.length / 2,
+    );
+
+  for (
+    let i = 0;
+    i < bytes.length;
+    i++
+  ) {
+    bytes[i] =
+      parseInt(
+        hex.slice(
+          i * 2,
+          i * 2 + 2,
+        ),
+        16,
+      );
+  }
+
+  return bytes;
+}
+
 async function verifyPaystackSignature(
-  body: string,
+  rawBody: string,
   signature: string,
   secret: string,
 ) {
-  if (!signature) {
+  if (
+    !signature ||
+    !secret
+  ) {
+    return false;
+  }
+
+  const expected =
+    hexToBytes(signature);
+
+  if (!expected) {
     return false;
   }
 
   const key =
     await crypto.subtle.importKey(
       "raw",
+
       new TextEncoder().encode(
         secret,
       ),
+
       {
         name: "HMAC",
         hash: "SHA-512",
       },
+
       false,
-      ["verify"],
+
+      ["sign"],
     );
 
-  const expected =
+  const generated =
     new Uint8Array(
-      signature
-        .match(/.{1,2}/g)
-        ?.map(
-          (byte) =>
-            parseInt(
-              byte,
-              16,
-            ),
-        ) || [],
+      await crypto.subtle.sign(
+        "HMAC",
+        key,
+        new TextEncoder().encode(
+          rawBody,
+        ),
+      ),
     );
 
-  if (
-    expected.length !== 64
-  ) {
-    return false;
-  }
-
-  return crypto.subtle.verify(
-    "HMAC",
-    key,
+  return timingSafeEqual(
+    generated,
     expected,
-    new TextEncoder().encode(
-      body,
-    ),
   );
 }
 
@@ -1235,14 +1670,21 @@ async function handlePaystackWebhook(
     );
   }
 
+  /*
+     We only process successful charges.
+  */
+
   if (
     event?.event !==
     "charge.success"
   ) {
-    return json({
-      success: true,
-      ignored: true,
-    });
+    return json(
+      {
+        success: true,
+        ignored: true,
+      },
+      200,
+    );
   }
 
   const transaction =
@@ -1253,10 +1695,13 @@ async function handlePaystackWebhook(
     transaction?.status !==
       "success"
   ) {
-    return json({
-      success: true,
-      ignored: true,
-    });
+    return json(
+      {
+        success: true,
+        ignored: true,
+      },
+      200,
+    );
   }
 
   const metadata =
@@ -1270,23 +1715,18 @@ async function handlePaystackWebhook(
     ).trim();
 
   const votes =
-    Number(
-      metadata.votes,
+    Math.floor(
+      Number(
+        metadata.votes ||
+          0,
+      ),
     );
-
-  const email =
-    String(
-      transaction.customer
-        ?.email ||
-        "",
-    )
-      .trim()
-      .toLowerCase();
 
   if (
     !contestantId ||
     !Number.isInteger(votes) ||
-    votes < 1
+    votes < 1 ||
+    votes > 1000
   ) {
     return json(
       {
@@ -1299,7 +1739,9 @@ async function handlePaystackWebhook(
   }
 
   const settings =
-    await getVotingSettings(env);
+    await getVotingSettings(
+      env,
+    );
 
   const expectedAmount =
     votes *
@@ -1315,14 +1757,55 @@ async function handlePaystackWebhook(
       {
         success: false,
         error:
-          "Webhook payment amount is invalid.",
+          "Webhook payment amount does not match.",
       },
       400,
     );
   }
 
+  /*
+     Confirm contestant before attempting the vote credit.
+  */
+
+  const contestant =
+    await getContestant(
+      env,
+      contestantId,
+    );
+
+  if (!contestant) {
+    console.error(
+      "Webhook contestant not found:",
+      contestantId,
+    );
+
+    /*
+       Return 500 so Paystack can retry the webhook rather than
+       treating this payment as successfully processed.
+    */
+
+    return json(
+      {
+        success: false,
+        error:
+          "Contestant could not be found.",
+        contestantId,
+      },
+      500,
+    );
+  }
+
+  const email =
+    String(
+      transaction.customer
+        ?.email ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+
   try {
-    const credited =
+    const result =
       await creditVotes(
         env,
         {
@@ -1341,13 +1824,39 @@ async function handlePaystackWebhook(
             ) / 100,
 
           email,
+
+          paystackTransactionId:
+            String(
+              transaction.id ||
+                "",
+            ),
+
+          voterName:
+            String(
+              metadata.voterName ||
+                "",
+            ),
+
+          phone:
+            String(
+              metadata.phone ||
+                "",
+            ),
         },
       );
 
-    return json({
-      success: true,
-      ...credited,
-    });
+    return json(
+      {
+        success: true,
+
+        alreadyCredited:
+          result.alreadyCredited,
+
+        reference:
+          transaction.reference,
+      },
+      200,
+    );
   } catch (error) {
     console.error(
       "Webhook credit failed:",
@@ -1377,6 +1886,10 @@ export default {
     const origin =
       getOrigin(request);
 
+    /*
+       CORS preflight
+    */
+
     if (
       request.method ===
       "OPTIONS"
@@ -1386,7 +1899,9 @@ export default {
         {
           status: 204,
           headers:
-            corsHeaders(origin),
+            corsHeaders(
+              origin,
+            ),
         },
       );
     }
@@ -1395,6 +1910,10 @@ export default {
       new URL(request.url);
 
     try {
+      /*
+         HEALTH CHECK
+      */
+
       if (
         request.method ===
           "GET" &&
@@ -1404,12 +1923,29 @@ export default {
           {
             service:
               "NAPAS Secure Voting Payment API",
-            status: "online",
+
+            status: "ok",
+
+            firebase:
+              Boolean(
+                env.FIREBASE_CLIENT_EMAIL &&
+                  env.FIREBASE_PRIVATE_KEY &&
+                  env.FIREBASE_PROJECT_ID,
+              ),
+
+            paystack:
+              Boolean(
+                env.PAYSTACK_SECRET_KEY,
+              ),
           },
           200,
           origin,
         );
       }
+
+      /*
+         INITIALIZE PAYMENT
+      */
 
       if (
         request.method ===
@@ -1423,6 +1959,10 @@ export default {
         );
       }
 
+      /*
+         VERIFY PAYMENT
+      */
+
       if (
         request.method ===
           "POST" &&
@@ -1434,6 +1974,10 @@ export default {
           env,
         );
       }
+
+      /*
+         PAYSTACK WEBHOOK
+      */
 
       if (
         request.method ===
@@ -1458,21 +2002,25 @@ export default {
       );
     } catch (error) {
       console.error(
-        "NAPAS Worker Error:",
+        "NAPAS Worker error:",
         error,
       );
 
       return json(
         {
           success: false,
+
           error:
+            "An unexpected payment server error occurred.",
+
+          details:
             error instanceof Error
               ? error.message
-              : "An unexpected payment server error occurred.",
+              : String(error),
         },
         500,
         origin,
       );
     }
   },
-} satisfies ExportedHandler<Env>;
+};
