@@ -28,7 +28,7 @@ let cachedFirebaseToken = "";
 let cachedFirebaseTokenExpiresAt = 0;
 
 /* =========================================================
-   CORS / RESPONSE HELPERS
+   CORS / RESPONSE
    ========================================================= */
 
 function getOrigin(request: Request) {
@@ -163,8 +163,9 @@ async function createFirebaseAccessToken(
   };
 
   const unsignedToken =
-    `${base64UrlEncode(JSON.stringify(header))}.` +
-    base64UrlEncode(JSON.stringify(payload));
+    `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(
+      JSON.stringify(payload),
+    )}`;
 
   const key =
     await crypto.subtle.importKey(
@@ -229,13 +230,15 @@ async function createFirebaseAccessToken(
     data.access_token;
 
   cachedFirebaseTokenExpiresAt =
-    now + Number(data.expires_in || 3600);
+    now + Number(
+      data.expires_in || 3600,
+    );
 
   return cachedFirebaseToken;
 }
 
 /* =========================================================
-   FIRESTORE
+   FIRESTORE VALUE HELPERS
    ========================================================= */
 
 function firestoreString(value: unknown) {
@@ -283,15 +286,11 @@ function extractFirestoreValue(
   }
 
   if ("integerValue" in field) {
-    return Number(
-      field.integerValue,
-    );
+    return Number(field.integerValue);
   }
 
   if ("doubleValue" in field) {
-    return Number(
-      field.doubleValue,
-    );
+    return Number(field.doubleValue);
   }
 
   if ("booleanValue" in field) {
@@ -304,6 +303,10 @@ function extractFirestoreValue(
 
   return null;
 }
+
+/* =========================================================
+   FIRESTORE REQUEST
+   ========================================================= */
 
 async function firestoreRequest(
   env: Env,
@@ -397,7 +400,7 @@ async function getVotingSettings(
 }
 
 /* =========================================================
-   CONTESTANT LOOKUP
+   CONTESTANT
    ========================================================= */
 
 async function getContestant(
@@ -413,7 +416,7 @@ async function getContestant(
     return null;
   }
 
-  const direct =
+  const response =
     await firestoreRequest(
       env,
       `contestants/${encodeURIComponent(
@@ -421,27 +424,27 @@ async function getContestant(
       )}`,
     );
 
-  if (direct.ok) {
-    const document: any =
-      await direct.json();
-
-    return {
-      ...document,
-      documentName:
-        document.name,
-      documentId:
-        document.name
-          ?.split("/")
-          .pop() ||
-        cleanId,
-    };
+  if (!response.ok) {
+    return null;
   }
 
-  return null;
+  const document: any =
+    await response.json();
+
+  return {
+    ...document,
+    documentName:
+      document.name,
+    documentId:
+      document.name
+        ?.split("/")
+        .pop() ||
+      cleanId,
+  };
 }
 
 /* =========================================================
-   PAYMENT LOOKUP
+   PAYMENT DOCUMENT
    ========================================================= */
 
 async function getPayment(
@@ -500,9 +503,7 @@ async function paystackRequest(
 function getPaymentMetadata(
   transaction: any,
 ) {
-  return (
-    transaction?.metadata || {}
-  );
+  return transaction?.metadata || {};
 }
 
 function getContestantIdFromTransaction(
@@ -693,9 +694,7 @@ async function initializePayment(
   }
 
   const settings =
-    await getVotingSettings(
-      env,
-    );
+    await getVotingSettings(env);
 
   if (!settings.votingOpen) {
     return json(
@@ -745,11 +744,11 @@ async function initializePayment(
   }
 
   const amountNaira =
-    votes *
-    settings.votePrice;
+    votes * settings.votePrice;
 
   const reference =
-    `NAPAS-${Date.now()}-${crypto.randomUUID()
+    `NAPAS-${Date.now()}-${crypto
+      .randomUUID()
       .replace(/-/g, "")
       .slice(0, 12)
       .toUpperCase()}`;
@@ -829,7 +828,7 @@ async function initializePayment(
 }
 
 /* =========================================================
-   CREDIT VOTES
+   CREDIT VOTES - IDEMPOTENT
    ========================================================= */
 
 async function creditVotes(
@@ -845,7 +844,6 @@ async function creditVotes(
     paystackTransactionId?: string;
     source?: string;
     historicalVotePrice?: number;
-    allowExistingPayment?: boolean;
   },
 ) {
   const existing =
@@ -855,30 +853,17 @@ async function creditVotes(
     );
 
   /*
-   * A payment that has already been
-   * credited must NEVER be incremented again.
+   * If the payment is already marked as credited,
+   * NEVER increment the contestant again.
    */
 
-  if (
-    existing &&
-    !payment.allowExistingPayment
-  ) {
-    return {
-      alreadyCredited: true,
-      repaired: false,
-    };
-  }
-
   if (existing) {
-    const existingCredited =
+    const credited =
       extractFirestoreValue(
-        existing.fields
-          ?.votesCredited,
+        existing.fields?.votesCredited,
       );
 
-    if (
-      existingCredited === true
-    ) {
+    if (credited === true) {
       return {
         alreadyCredited: true,
         repaired: false,
@@ -919,10 +904,7 @@ async function creditVotes(
   const contestantDocument =
     contestant.documentName;
 
-  const paymentFields: Record<
-    string,
-    any
-  > = {
+  const paymentFields: Record<string, any> = {
     reference:
       firestoreString(
         payment.reference,
@@ -955,14 +937,12 @@ async function creditVotes(
 
     voterName:
       firestoreString(
-        payment.voterName ||
-          "",
+        payment.voterName || "",
       ),
 
     phone:
       firestoreString(
-        payment.phone ||
-          "",
+        payment.phone || "",
       ),
 
     paystackTransactionId:
@@ -983,14 +963,13 @@ async function creditVotes(
       ),
 
     votesCredited:
-      firestoreBoolean(
-        true,
-      ),
+      firestoreBoolean(true),
 
     creditedAt:
       firestoreTimestamp(),
 
     createdAt:
+      existing?.fields?.createdAt ||
       firestoreTimestamp(),
   };
 
@@ -1013,15 +992,55 @@ async function creditVotes(
   };
 
   /*
-   * Only new payment documents
-   * require exists:false.
+   * CRITICAL IDEMPOTENCY PROTECTION
+   *
+   * First-ever payment:
+   *     document must NOT already exist.
+   *
+   * Existing uncredited payment:
+   *     update only the exact document version
+   *     that we just read.
+   *
+   * If another webhook/verify request modifies
+   * that document first, Firestore rejects this
+   * write instead of allowing a second vote credit.
    */
 
   if (!existing) {
     write.currentDocument = {
       exists: false,
     };
+  } else if (existing.updateTime) {
+    write.currentDocument = {
+      updateTime:
+        existing.updateTime,
+    };
   }
+
+  const commitBody = {
+    writes: [
+      write,
+
+      {
+        transform: {
+          document:
+            contestantDocument,
+
+          fieldTransforms: [
+            {
+              fieldPath: "votes",
+              increment: {
+                integerValue:
+                  String(
+                    payment.votes,
+                  ),
+              },
+            },
+          ],
+        },
+      },
+    ],
+  };
 
   const commitResponse =
     await fetch(
@@ -1034,29 +1053,10 @@ async function creditVotes(
           "Content-Type":
             "application/json",
         },
-        body: JSON.stringify({
-          writes: [
-            write,
-            {
-              transform: {
-                document:
-                  contestantDocument,
-                fieldTransforms: [
-                  {
-                    fieldPath:
-                      "votes",
-                    increment: {
-                      integerValue:
-                        String(
-                          payment.votes,
-                        ),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        }),
+        body:
+          JSON.stringify(
+            commitBody,
+          ),
       },
     );
 
@@ -1069,9 +1069,18 @@ async function creditVotes(
       errorText,
     );
 
+    /*
+     * Another request already won the race.
+     *
+     * Do NOT increment again.
+     */
+
     if (
       errorText.includes(
         "ALREADY_EXISTS",
+      ) ||
+      errorText.includes(
+        "FAILED_PRECONDITION",
       )
     ) {
       return {
@@ -1137,6 +1146,10 @@ async function verifyPayment(
     );
   }
 
+  /*
+   * Fast idempotency check.
+   */
+
   const existing =
     await getPayment(
       env,
@@ -1146,8 +1159,7 @@ async function verifyPayment(
   if (existing) {
     const credited =
       extractFirestoreValue(
-        existing.fields
-          ?.votesCredited,
+        existing.fields?.votesCredited,
       );
 
     if (credited === true) {
@@ -1162,6 +1174,10 @@ async function verifyPayment(
       );
     }
   }
+
+  /*
+   * Ask Paystack directly.
+   */
 
   const paystackResponse =
     await paystackRequest(
@@ -1294,56 +1310,77 @@ async function verifyPayment(
       .trim()
       .toLowerCase();
 
-  const result =
-    await creditVotes(
-      env,
+  try {
+    const result =
+      await creditVotes(
+        env,
+        {
+          reference,
+          contestantId,
+          votes,
+          amount:
+            Number(
+              transaction.amount,
+            ) / 100,
+          email,
+          paystackTransactionId:
+            String(
+              transaction.id || "",
+            ),
+          voterName:
+            String(
+              metadata.voterName ||
+                "",
+            ),
+          phone:
+            String(
+              metadata.phone ||
+                "",
+            ),
+          source:
+            "PAYSTACK_VERIFY",
+          historicalVotePrice:
+            historicalPrice,
+        },
+      );
+
+    return json(
       {
+        success: true,
         reference,
         contestantId,
+        firestoreContestantId:
+          contestant.documentId,
         votes,
         amount:
           Number(
             transaction.amount,
           ) / 100,
-        email,
-        paystackTransactionId:
-          String(
-            transaction.id || "",
-          ),
-        voterName:
-          String(
-            metadata.voterName ||
-              "",
-          ),
-        phone:
-          String(
-            metadata.phone || "",
-          ),
-        source:
-          "PAYSTACK_VERIFY",
-        historicalVotePrice:
-          historicalPrice,
+        alreadyCredited:
+          result.alreadyCredited,
+        repaired:
+          result.repaired,
       },
+      200,
+      origin,
+    );
+  } catch (error) {
+    console.error(
+      "Payment verification credit failed:",
+      error,
     );
 
-  return json(
-    {
-      success: true,
-      reference,
-      contestantId,
-      firestoreContestantId:
-        contestant.documentId,
-      votes,
-      amount:
-        Number(
-          transaction.amount,
-        ) / 100,
-      alreadyCredited:
-        result.alreadyCredited,
-    },
-    200,
-    origin,
-  );
+    return json(
+      {
+        success: false,
+        error:
+          "Payment was successful but vote processing is temporarily pending. Please keep your payment reference.",
+        reference,
+      },
+      500,
+      origin,
+    );
+  }
 }
 
 /* =========================================================
@@ -1509,12 +1546,10 @@ async function handlePaystackWebhook(
     event?.event !==
     "charge.success"
   ) {
-    return json(
-      {
-        success: true,
-        ignored: true,
-      },
-    );
+    return json({
+      success: true,
+      ignored: true,
+    });
   }
 
   const transaction =
@@ -1525,12 +1560,10 @@ async function handlePaystackWebhook(
     transaction?.status !==
       "success"
   ) {
-    return json(
-      {
-        success: true,
-        ignored: true,
-      },
-    );
+    return json({
+      success: true,
+      ignored: true,
+    });
   }
 
   if (
@@ -1538,14 +1571,12 @@ async function handlePaystackWebhook(
       transaction,
     )
   ) {
-    return json(
-      {
-        success: true,
-        ignored: true,
-        reason:
-          "Not a NAPAS transaction.",
-      },
-    );
+    return json({
+      success: true,
+      ignored: true,
+      reason:
+        "Not a NAPAS transaction.",
+    });
   }
 
   const metadata =
@@ -1649,20 +1680,25 @@ async function handlePaystackWebhook(
         },
       );
 
-    return json(
-      {
-        success: true,
-        alreadyCredited:
-          result.alreadyCredited,
-        reference:
-          transaction.reference,
-      },
-    );
+    return json({
+      success: true,
+      alreadyCredited:
+        result.alreadyCredited,
+      repaired:
+        result.repaired,
+      reference:
+        transaction.reference,
+    });
   } catch (error) {
     console.error(
       "Webhook credit failed:",
       error,
     );
+
+    /*
+     * Return 500 so Paystack can retry
+     * the webhook.
+     */
 
     return json(
       {
@@ -1717,7 +1753,7 @@ function isReconciliationAuthorized(
 }
 
 /* =========================================================
-   GET ONE PAYSTACK TRANSACTION
+   GET PAYSTACK TRANSACTION
    ========================================================= */
 
 async function getPaystackTransaction(
@@ -1782,11 +1818,6 @@ async function reconcileOneReference(
         "Reference is not a NAPAS reference.",
     };
   }
-
-  /*
-   * ONLY ONE PAYSTACK REQUEST
-   * FOR THIS REFERENCE.
-   */
 
   const transaction =
     await getPaystackTransaction(
@@ -1867,11 +1898,6 @@ async function reconcileOneReference(
     };
   }
 
-  /*
-   * Check whether Firestore already
-   * contains this payment.
-   */
-
   const existing =
     await getPayment(
       env,
@@ -1885,9 +1911,7 @@ async function reconcileOneReference(
           ?.votesCredited,
       );
 
-    if (
-      credited === true
-    ) {
+    if (credited === true) {
       return {
         action:
           "alreadyCredited",
@@ -1897,25 +1921,20 @@ async function reconcileOneReference(
     }
 
     /*
-     * If a legacy payment document exists
-     * without a clear credited flag, do NOT
-     * guess and risk double-counting.
+     * Existing payment without
+     * votesCredited=true is now
+     * repairable.
      */
 
-    return {
-      action:
-        "manualReview",
-      contestantId,
-      votes,
-      reason:
-        "Payment exists in Firestore but does not have votesCredited=true. Not automatically incremented.",
-    };
+    if (dryRun) {
+      return {
+        action:
+          "wouldRepair",
+        contestantId,
+        votes,
+      };
+    }
   }
-
-  /*
-   * DRY RUN:
-   * Do not touch Firestore.
-   */
 
   if (dryRun) {
     return {
@@ -1929,10 +1948,6 @@ async function reconcileOneReference(
         ) / 100,
     };
   }
-
-  /*
-   * ACTUAL CREDIT
-   */
 
   const email =
     String(
@@ -1989,7 +2004,9 @@ async function reconcileOneReference(
 
   return {
     action:
-      "credited",
+      existing
+        ? "repaired"
+        : "credited",
     contestantId,
     votes,
     amount:
@@ -2044,29 +2061,11 @@ async function reconcilePayments(
     );
   }
 
-  /*
-   * Accept either:
-   *
-   * {
-   *   "reference": "NAPAS-..."
-   * }
-   *
-   * OR:
-   *
-   * {
-   *   "references": [
-   *     "NAPAS-...",
-   *     "NAPAS-...",
-   *     "NAPAS-..."
-   *   ]
-   * }
-   */
-
   let references: string[] = [];
 
   if (
     typeof body?.reference ===
-    "string" &&
+      "string" &&
     body.reference.trim()
   ) {
     references.push(
@@ -2095,10 +2094,6 @@ async function reconcilePayments(
       );
   }
 
-  /*
-   * Remove duplicate references.
-   */
-
   references = [
     ...new Set(
       references.map(
@@ -2121,14 +2116,6 @@ async function reconcilePayments(
       origin,
     );
   }
-
-  /*
-   * HARD LIMIT:
-   * Maximum 5 references per request.
-   *
-   * This is deliberate to prevent
-   * Cloudflare subrequest errors.
-   */
 
   if (
     references.length >
@@ -2158,21 +2145,14 @@ async function reconcilePayments(
     processed:
       references.length,
     credited: 0,
+    repaired: 0,
     wouldCredit: 0,
+    wouldRepair: 0,
     alreadyCredited: 0,
-    manualReview: 0,
     skipped: 0,
     failed: 0,
     details: [] as any[],
   };
-
-  /*
-   * Process references one by one.
-   *
-   * We intentionally DO NOT use Promise.all()
-   * because sequential processing keeps the
-   * subrequest usage predictable.
-   */
 
   for (
     const reference of references
@@ -2197,16 +2177,20 @@ async function reconcilePayments(
           result.credited++;
           break;
 
+        case "repaired":
+          result.repaired++;
+          break;
+
         case "wouldCredit":
           result.wouldCredit++;
           break;
 
-        case "alreadyCredited":
-          result.alreadyCredited++;
+        case "wouldRepair":
+          result.wouldRepair++;
           break;
 
-        case "manualReview":
-          result.manualReview++;
+        case "alreadyCredited":
+          result.alreadyCredited++;
           break;
 
         default:
@@ -2298,8 +2282,8 @@ export default {
               "/paystack-webhook",
               "/reconcile-payments",
             ],
-            reconciliationMode:
-              "reference-only",
+            idempotency:
+              "payment-reference",
             maxReferencesPerRequest:
               MAX_RECONCILIATION_REFERENCES,
           },
