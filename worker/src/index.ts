@@ -1,8 +1,6 @@
 interface Env {
+  DB: D1Database;
   PAYSTACK_SECRET_KEY: string;
-  FIREBASE_PROJECT_ID: string;
-  FIREBASE_CLIENT_EMAIL: string;
-  FIREBASE_PRIVATE_KEY: string;
   RECONCILIATION_KEY?: string;
 }
 
@@ -18,17 +16,9 @@ const ALLOWED_ORIGINS = [
 
 const DEFAULT_VOTE_PRICE = 100;
 const MAX_VOTES_PER_PAYMENT = 1000;
-const MAX_RECONCILIATION_REFERENCES = 100;
 
 /* =========================================================
-   FIREBASE TOKEN CACHE
-========================================================= */
-
-let cachedFirebaseToken = "";
-let cachedFirebaseTokenExpiresAt = 0;
-
-/* =========================================================
-   CORS / RESPONSE
+   CORS
 ========================================================= */
 
 function getOrigin(request: Request) {
@@ -66,315 +56,62 @@ function json(
 }
 
 /* =========================================================
-   BASE64 / FIREBASE AUTH
-========================================================= */
-
-function base64UrlEncode(input: ArrayBuffer | string) {
-  const bytes =
-    typeof input === "string"
-      ? new TextEncoder().encode(input)
-      : new Uint8Array(input);
-
-  let binary = "";
-
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const cleaned = pem
-    .replace(/\\n/g, "\n")
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s/g, "");
-
-  if (!cleaned) {
-    throw new Error("FIREBASE_PRIVATE_KEY is empty.");
-  }
-
-  const binary = atob(cleaned);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return bytes.buffer;
-}
-
-async function createFirebaseAccessToken(env: Env): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-
-  if (
-    cachedFirebaseToken &&
-    cachedFirebaseTokenExpiresAt > now + 60
-  ) {
-    return cachedFirebaseToken;
-  }
-
-  const clientEmail = env.FIREBASE_CLIENT_EMAIL?.trim();
-  const projectId = env.FIREBASE_PROJECT_ID?.trim();
-  const privateKey = env.FIREBASE_PRIVATE_KEY;
-
-  if (!clientEmail) {
-    throw new Error("FIREBASE_CLIENT_EMAIL is not configured.");
-  }
-
-  if (!projectId) {
-    throw new Error("FIREBASE_PROJECT_ID is not configured.");
-  }
-
-  if (!privateKey) {
-    throw new Error("FIREBASE_PRIVATE_KEY is not configured.");
-  }
-
-  const header = {
-    alg: "RS256",
-    typ: "JWT",
-  };
-
-  const payload = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/datastore",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const unsignedToken =
-    `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(
-      JSON.stringify(payload),
-    )}`;
-
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToArrayBuffer(privateKey),
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: "SHA-256",
-    },
-    false,
-    ["sign"],
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(unsignedToken),
-  );
-
-  const jwt =
-    `${unsignedToken}.${base64UrlEncode(signature)}`;
-
-  const response = await fetch(
-    "https://oauth2.googleapis.com/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type:
-          "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion: jwt,
-      }),
-    },
-  );
-
-  const data: any = await response.json();
-
-  if (!response.ok || !data.access_token) {
-    console.error("Firebase token error:", data);
-
-    throw new Error(
-      data.error_description ||
-        data.error ||
-        "Unable to authenticate with Firebase.",
-    );
-  }
-
-  cachedFirebaseToken = data.access_token;
-  cachedFirebaseTokenExpiresAt =
-    now + Number(data.expires_in || 3600);
-
-  return cachedFirebaseToken;
-}
-
-/* =========================================================
-   FIRESTORE
-========================================================= */
-
-function firestoreString(value: unknown) {
-  return {
-    stringValue: String(value ?? ""),
-  };
-}
-
-function firestoreInteger(value: number) {
-  return {
-    integerValue: String(Math.trunc(value)),
-  };
-}
-
-function firestoreDouble(value: number) {
-  return {
-    doubleValue: Number(value),
-  };
-}
-
-function firestoreBoolean(value: boolean) {
-  return {
-    booleanValue: value,
-  };
-}
-
-function firestoreTimestamp(date = new Date()) {
-  return {
-    timestampValue: date.toISOString(),
-  };
-}
-
-function extractFirestoreValue(field: any): any {
-  if (!field) return null;
-
-  if ("stringValue" in field) return field.stringValue;
-  if ("integerValue" in field) return Number(field.integerValue);
-  if ("doubleValue" in field) return Number(field.doubleValue);
-  if ("booleanValue" in field) return field.booleanValue;
-  if ("timestampValue" in field) return field.timestampValue;
-
-  return null;
-}
-
-async function firestoreRequest(
-  env: Env,
-  path: string,
-  options: RequestInit = {},
-) {
-  const token = await createFirebaseAccessToken(env);
-
-  const projectId = encodeURIComponent(
-    env.FIREBASE_PROJECT_ID.trim(),
-  );
-
-  const url =
-    `https://firestore.googleapis.com/v1/projects/${projectId}` +
-    `/databases/(default)/documents/${path}`;
-
-  return fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-}
-
-/* =========================================================
-   VOTING SETTINGS
-========================================================= */
-
-async function getVotingSettings(env: Env) {
-  try {
-    const response = await firestoreRequest(
-      env,
-      "settings/voting",
-    );
-
-    if (!response.ok) {
-      return {
-        votingOpen: true,
-        votePrice: DEFAULT_VOTE_PRICE,
-      };
-    }
-
-    const document: any = await response.json();
-
-    const votingOpen =
-      extractFirestoreValue(
-        document.fields?.votingOpen,
-      ) ?? true;
-
-    const rawPrice =
-      extractFirestoreValue(
-        document.fields?.votePrice,
-      );
-
-    const votePrice =
-      Number.isFinite(Number(rawPrice)) &&
-      Number(rawPrice) > 0
-        ? Number(rawPrice)
-        : DEFAULT_VOTE_PRICE;
-
-    return {
-      votingOpen: Boolean(votingOpen),
-      votePrice,
-    };
-  } catch (error) {
-    console.error("Voting settings error:", error);
-
-    return {
-      votingOpen: true,
-      votePrice: DEFAULT_VOTE_PRICE,
-    };
-  }
-}
-
-/* =========================================================
-   CONTESTANT
+   D1 HELPERS
 ========================================================= */
 
 async function getContestant(
   env: Env,
   contestantId: string,
 ) {
-  const cleanId =
-    String(contestantId || "").trim();
-
-  if (!cleanId) return null;
-
-  const response = await firestoreRequest(
-    env,
-    `contestants/${encodeURIComponent(cleanId)}`,
-  );
-
-  if (!response.ok) return null;
-
-  const document: any = await response.json();
-
-  return {
-    ...document,
-    documentName: document.name,
-    documentId:
-      document.name?.split("/").pop() ||
-      cleanId,
-  };
+  return await env.DB
+    .prepare(
+      `
+      SELECT id, name, votes
+      FROM contestants
+      WHERE id = ?
+      LIMIT 1
+      `,
+    )
+    .bind(contestantId)
+    .first<{
+      id: string;
+      name: string;
+      votes: number;
+    }>();
 }
-
-/* =========================================================
-   PAYMENT LOOKUP
-========================================================= */
 
 async function getPayment(
   env: Env,
   reference: string,
 ) {
-  const response = await firestoreRequest(
-    env,
-    `payments/${encodeURIComponent(reference)}`,
-  );
+  return await env.DB
+    .prepare(
+      `
+      SELECT *
+      FROM payments
+      WHERE reference = ?
+      LIMIT 1
+      `,
+    )
+    .bind(reference)
+    .first<any>();
+}
 
-  if (!response.ok) return null;
-
-  return response.json();
+async function getLedgerEntry(
+  env: Env,
+  reference: string,
+) {
+  return await env.DB
+    .prepare(
+      `
+      SELECT *
+      FROM vote_ledger
+      WHERE reference = ?
+      LIMIT 1
+      `,
+    )
+    .bind(reference)
+    .first<any>();
 }
 
 /* =========================================================
@@ -399,8 +136,7 @@ async function paystackRequest(
       headers: {
         Authorization:
           `Bearer ${env.PAYSTACK_SECRET_KEY}`,
-        "Content-Type":
-          "application/json",
+        "Content-Type": "application/json",
         ...(options.headers || {}),
       },
     },
@@ -408,18 +144,18 @@ async function paystackRequest(
 }
 
 /* =========================================================
-   PAYMENT METADATA
+   METADATA
 ========================================================= */
 
-function getPaymentMetadata(transaction: any) {
+function getMetadata(transaction: any) {
   return transaction?.metadata || {};
 }
 
-function getContestantIdFromTransaction(
+function getContestantId(
   transaction: any,
 ) {
   const metadata =
-    getPaymentMetadata(transaction);
+    getMetadata(transaction);
 
   return String(
     metadata.contestantId ||
@@ -429,11 +165,11 @@ function getContestantIdFromTransaction(
   ).trim();
 }
 
-function getVotesFromTransaction(
+function getVotes(
   transaction: any,
 ) {
   const metadata =
-    getPaymentMetadata(transaction);
+    getMetadata(transaction);
 
   const votes =
     Math.floor(
@@ -445,20 +181,19 @@ function getVotesFromTransaction(
     : 0;
 }
 
-function getHistoricalVotePrice(
+function getVotePrice(
   transaction: any,
-  fallbackPrice: number,
 ) {
   const metadata =
-    getPaymentMetadata(transaction);
+    getMetadata(transaction);
 
-  const stored =
+  const price =
     Number(metadata.votePrice);
 
-  return Number.isFinite(stored) &&
-    stored > 0
-    ? stored
-    : fallbackPrice;
+  return Number.isFinite(price) &&
+    price > 0
+    ? price
+    : DEFAULT_VOTE_PRICE;
 }
 
 function isNapasTransaction(
@@ -471,8 +206,8 @@ function isNapasTransaction(
 
   const source =
     String(
-      getPaymentMetadata(transaction)
-        ?.source || "",
+      getMetadata(transaction)?.source ||
+        "",
     ).toUpperCase();
 
   return (
@@ -482,19 +217,282 @@ function isNapasTransaction(
 }
 
 /* =========================================================
-   INITIALIZE PAYMENT
+   ATOMIC D1 VOTE CREDIT
+========================================================= */
+
+async function creditVotes(
+  env: Env,
+  payment: {
+    reference: string;
+    contestantId: string;
+    votes: number;
+    amount: number;
+    email?: string;
+    voterName?: string;
+    phone?: string;
+    paystackTransactionId?: string;
+    source: string;
+  },
+) {
+  const reference =
+    String(payment.reference || "").trim();
+
+  if (!reference) {
+    throw new Error(
+      "Payment reference is required.",
+    );
+  }
+
+  /*
+   * Check payment first.
+   */
+
+  const existingPayment =
+    await getPayment(
+      env,
+      reference,
+    );
+
+  if (existingPayment) {
+    const alreadyApplied =
+      Number(
+        existingPayment.votes_applied || 0,
+      );
+
+    const credited =
+      Number(
+        existingPayment.votes_credited || 0,
+      );
+
+    if (
+      alreadyApplied >=
+      Number(payment.votes)
+    ) {
+      return {
+        alreadyCredited: true,
+        credited: false,
+        votes: payment.votes,
+      };
+    }
+
+    /*
+     * Existing payment but votes not applied.
+     *
+     * We repair it here.
+     */
+
+    const contestant =
+      await getContestant(
+        env,
+        payment.contestantId,
+      );
+
+    if (!contestant) {
+      throw new Error(
+        `Contestant ${payment.contestantId} not found.`,
+      );
+    }
+
+    const ledger =
+      await getLedgerEntry(
+        env,
+        reference,
+      );
+
+    if (ledger) {
+      await env.DB
+        .prepare(
+          `
+          UPDATE payments
+          SET
+            votes_credited = ?,
+            votes_applied = ?,
+            status = 'success'
+          WHERE reference = ?
+          `,
+        )
+        .bind(
+          Number(payment.votes),
+          Number(payment.votes),
+          reference,
+        )
+        .run();
+
+      return {
+        alreadyCredited: true,
+        credited: false,
+        votes: payment.votes,
+      };
+    }
+  }
+
+  /*
+   * New payment.
+   *
+   * We perform the following as one D1 batch:
+   *
+   * 1. Insert payment.
+   * 2. Insert vote ledger entry.
+   * 3. Increment contestant votes.
+   *
+   * The reference is the idempotency key.
+   */
+
+  const existingLedger =
+    await getLedgerEntry(
+      env,
+      reference,
+    );
+
+  if (existingLedger) {
+    return {
+      alreadyCredited: true,
+      credited: false,
+      votes: Number(
+        existingLedger.votes || payment.votes,
+      ),
+    };
+  }
+
+  const contestant =
+    await getContestant(
+      env,
+      payment.contestantId,
+    );
+
+  if (!contestant) {
+    throw new Error(
+      `Contestant ${payment.contestantId} not found.`,
+    );
+  }
+
+  const now =
+    new Date().toISOString();
+
+  const paymentInsert =
+    env.DB.prepare(
+      `
+      INSERT INTO payments (
+        reference,
+        contestant_id,
+        amount,
+        votes,
+        votes_credited,
+        votes_applied,
+        source,
+        status,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(reference) DO NOTHING
+      `,
+    ).bind(
+      reference,
+      payment.contestantId,
+      payment.amount,
+      payment.votes,
+      payment.votes,
+      payment.votes,
+      payment.source,
+      "success",
+      now,
+    );
+
+  const ledgerInsert =
+    env.DB.prepare(
+      `
+      INSERT INTO vote_ledger (
+        reference,
+        contestant_id,
+        votes,
+        created_at,
+        source
+      )
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(reference) DO NOTHING
+      `,
+    ).bind(
+      reference,
+      payment.contestantId,
+      payment.votes,
+      now,
+      payment.source,
+    );
+
+  const contestantUpdate =
+    env.DB.prepare(
+      `
+      UPDATE contestants
+      SET votes = votes + ?
+      WHERE id = ?
+      `,
+    ).bind(
+      payment.votes,
+      payment.contestantId,
+    );
+
+  /*
+   * First determine whether this reference was
+   * already processed.
+   */
+
+  const check =
+    await getPayment(
+      env,
+      reference,
+    );
+
+  if (check) {
+    const applied =
+      Number(
+        check.votes_applied || 0,
+      );
+
+    if (
+      applied >=
+      payment.votes
+    ) {
+      return {
+        alreadyCredited: true,
+        credited: false,
+        votes: payment.votes,
+      };
+    }
+  }
+
+  /*
+   * Execute all three operations together.
+   */
+
+  await env.DB.batch([
+    paymentInsert,
+    ledgerInsert,
+    contestantUpdate,
+  ]);
+
+  return {
+    alreadyCredited: false,
+    credited: true,
+    votes: payment.votes,
+  };
+}
+
+/* =========================================================
+   INITIALIZE
 ========================================================= */
 
 async function initializePayment(
   request: Request,
   env: Env,
 ) {
-  const origin = getOrigin(request);
+  const origin =
+    getOrigin(request);
 
   let body: any;
 
   try {
-    body = await request.json();
+    body =
+      await request.json();
   } catch {
     return json(
       {
@@ -520,7 +518,9 @@ async function initializePayment(
     );
 
   const email =
-    String(body?.email || "")
+    String(
+      body?.email || "",
+    )
       .trim()
       .toLowerCase();
 
@@ -538,7 +538,8 @@ async function initializePayment(
     return json(
       {
         success: false,
-        error: "Contestant is required.",
+        error:
+          "Contestant is required.",
       },
       400,
       origin,
@@ -578,20 +579,6 @@ async function initializePayment(
     );
   }
 
-  const settings =
-    await getVotingSettings(env);
-
-  if (!settings.votingOpen) {
-    return json(
-      {
-        success: false,
-        error: "Voting is currently closed.",
-      },
-      403,
-      origin,
-    );
-  }
-
   const contestant =
     await getContestant(
       env,
@@ -603,32 +590,16 @@ async function initializePayment(
       {
         success: false,
         error:
-          "Contestant not found. Please refresh the voting page and try again.",
+          "Contestant not found. Please refresh and try again.",
       },
       404,
       origin,
     );
   }
 
-  const published =
-    extractFirestoreValue(
-      contestant.fields?.published,
-    );
-
-  if (published === false) {
-    return json(
-      {
-        success: false,
-        error:
-          "This contestant is not available for voting.",
-      },
-      403,
-      origin,
-    );
-  }
-
   const amountNaira =
-    votes * settings.votePrice;
+    votes *
+    DEFAULT_VOTE_PRICE;
 
   const reference =
     `NAPAS-${Date.now()}-${crypto
@@ -655,11 +626,9 @@ async function initializePayment(
             "https://napasawardvote.name.ng/?payment=return",
           metadata: {
             contestantId,
-            firestoreContestantId:
-              contestant.documentId,
             votes,
             votePrice:
-              settings.votePrice,
+              DEFAULT_VOTE_PRICE,
             voterName,
             phone,
             source:
@@ -669,20 +638,19 @@ async function initializePayment(
       },
     );
 
-  const paystackData: any =
+  const data: any =
     await paystackResponse.json();
 
   if (
     !paystackResponse.ok ||
-    !paystackData.status ||
-    !paystackData.data
-      ?.authorization_url
+    !data.status ||
+    !data.data?.authorization_url
   ) {
     return json(
       {
         success: false,
         error:
-          paystackData.message ||
+          data.message ||
           "Unable to initialize payment.",
       },
       502,
@@ -697,222 +665,13 @@ async function initializePayment(
       amount: amountNaira,
       votes,
       contestantId,
-      firestoreContestantId:
-        contestant.documentId,
       authorization_url:
-        paystackData.data
-          .authorization_url,
+        data.data.authorization_url,
       access_code:
-        paystackData.data.access_code,
+        data.data.access_code,
     },
     200,
     origin,
-  );
-}
-
-/* =========================================================
-   ATOMIC / IDEMPOTENT VOTE CREDIT
-========================================================= */
-
-async function creditVotes(
-  env: Env,
-  payment: {
-    reference: string;
-    contestantId: string;
-    votes: number;
-    amount: number;
-    email: string;
-    voterName?: string;
-    phone?: string;
-    paystackTransactionId?: string;
-    source?: string;
-    historicalVotePrice?: number;
-  },
-) {
-  const reference =
-    String(payment.reference || "").trim();
-
-  if (!reference) {
-    throw new Error(
-      "Payment reference is required.",
-    );
-  }
-
-  const contestant =
-    await getContestant(
-      env,
-      payment.contestantId,
-    );
-
-  if (
-    !contestant ||
-    !contestant.documentName
-  ) {
-    throw new Error(
-      `Contestant could not be resolved for payment ${reference}.`,
-    );
-  }
-
-  const token =
-    await createFirebaseAccessToken(env);
-
-  const projectId =
-    env.FIREBASE_PROJECT_ID.trim();
-
-  const commitUrl =
-    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-      projectId,
-    )}/databases/(default)/documents:commit`;
-
-  const paymentDocument =
-    `projects/${projectId}/databases/(default)/documents/payments/${reference}`;
-
-  const contestantDocument =
-    contestant.documentName;
-
-  const paymentFields: Record<string, any> = {
-    reference:
-      firestoreString(reference),
-
-    contestantId:
-      firestoreString(
-        payment.contestantId,
-      ),
-
-    firestoreContestantId:
-      firestoreString(
-        contestant.documentId,
-      ),
-
-    votes:
-      firestoreInteger(
-        payment.votes,
-      ),
-
-    amount:
-      firestoreDouble(
-        payment.amount,
-      ),
-
-    email:
-      firestoreString(
-        payment.email,
-      ),
-
-    voterName:
-      firestoreString(
-        payment.voterName || "",
-      ),
-
-    phone:
-      firestoreString(
-        payment.phone || "",
-      ),
-
-    paystackTransactionId:
-      firestoreString(
-        payment.paystackTransactionId ||
-          "",
-      ),
-
-    status:
-      firestoreString("success"),
-
-    source:
-      firestoreString(
-        payment.source ||
-          "PAYSTACK",
-      ),
-
-    votesCredited:
-      firestoreBoolean(true),
-
-    creditedAt:
-      firestoreTimestamp(),
-
-    createdAt:
-      firestoreTimestamp(),
-  };
-
-  if (payment.historicalVotePrice) {
-    paymentFields.votePrice =
-      firestoreDouble(
-        payment.historicalVotePrice,
-      );
-  }
-
-  const commitResponse =
-    await fetch(
-      commitUrl,
-      {
-        method: "POST",
-        headers: {
-          Authorization:
-            `Bearer ${token}`,
-          "Content-Type":
-            "application/json",
-        },
-        body: JSON.stringify({
-          writes: [
-            {
-              update: {
-                name: paymentDocument,
-                fields: paymentFields,
-              },
-              currentDocument: {
-                exists: false,
-              },
-            },
-            {
-              transform: {
-                document:
-                  contestantDocument,
-                fieldTransforms: [
-                  {
-                    fieldPath: "votes",
-                    increment: {
-                      integerValue:
-                        String(
-                          payment.votes,
-                        ),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        }),
-      },
-    );
-
-  if (commitResponse.ok) {
-    return {
-      alreadyCredited: false,
-      credited: true,
-    };
-  }
-
-  const errorText =
-    await commitResponse.text();
-
-  if (
-    errorText.includes(
-      "ALREADY_EXISTS",
-    )
-  ) {
-    return {
-      alreadyCredited: true,
-      credited: false,
-    };
-  }
-
-  console.error(
-    "Atomic Firestore vote credit failed:",
-    errorText,
-  );
-
-  throw new Error(
-    "Unable to atomically record payment and credit votes.",
   );
 }
 
@@ -924,12 +683,14 @@ async function verifyPayment(
   request: Request,
   env: Env,
 ) {
-  const origin = getOrigin(request);
+  const origin =
+    getOrigin(request);
 
   let body: any;
 
   try {
-    body = await request.json();
+    body =
+      await request.json();
   } catch {
     return json(
       {
@@ -959,6 +720,10 @@ async function verifyPayment(
     );
   }
 
+  /*
+   * D1 check.
+   */
+
   const existing =
     await getPayment(
       env,
@@ -966,18 +731,23 @@ async function verifyPayment(
     );
 
   if (existing) {
-    const credited =
-      extractFirestoreValue(
-        existing.fields
-          ?.votesCredited,
-      );
-
-    if (credited === true) {
+    if (
+      Number(
+        existing.votes_applied || 0,
+      ) >=
+      Number(
+        existing.votes || 0,
+      )
+    ) {
       return json(
         {
           success: true,
           alreadyCredited: true,
           reference,
+          contestantId:
+            existing.contestant_id,
+          votes:
+            Number(existing.votes || 0),
         },
         200,
         origin,
@@ -985,7 +755,7 @@ async function verifyPayment(
     }
   }
 
-  const paystackResponse =
+  const response =
     await paystackRequest(
       env,
       `/transaction/verify/${encodeURIComponent(
@@ -993,14 +763,13 @@ async function verifyPayment(
       )}`,
     );
 
-  const paystackData: any =
-    await paystackResponse.json();
+  const data: any =
+    await response.json();
 
   if (
-    !paystackResponse.ok ||
-    !paystackData.status ||
-    paystackData.data
-      ?.status !== "success"
+    !response.ok ||
+    !data.status ||
+    data.data?.status !== "success"
   ) {
     return json(
       {
@@ -1014,10 +783,12 @@ async function verifyPayment(
   }
 
   const transaction =
-    paystackData.data;
+    data.data;
 
   if (
-    !isNapasTransaction(transaction)
+    !isNapasTransaction(
+      transaction,
+    )
   ) {
     return json(
       {
@@ -1031,17 +802,16 @@ async function verifyPayment(
   }
 
   const metadata =
-    getPaymentMetadata(transaction);
+    getMetadata(transaction);
 
   const contestantId =
-    getContestantIdFromTransaction(
-      transaction,
-    );
+    getContestantId(transaction);
 
   const votes =
-    getVotesFromTransaction(
-      transaction,
-    );
+    getVotes(transaction);
+
+  const votePrice =
+    getVotePrice(transaction);
 
   if (
     !contestantId ||
@@ -1060,15 +830,9 @@ async function verifyPayment(
     );
   }
 
-  const historicalPrice =
-    getHistoricalVotePrice(
-      transaction,
-      DEFAULT_VOTE_PRICE,
-    );
-
   const expectedAmount =
     votes *
-    historicalPrice *
+    votePrice *
     100;
 
   if (
@@ -1121,14 +885,9 @@ async function verifyPayment(
           contestantId,
           votes,
           amount:
-            Number(
-              transaction.amount,
-            ) / 100,
+            Number(transaction.amount) /
+            100,
           email,
-          paystackTransactionId:
-            String(
-              transaction.id || "",
-            ),
           voterName:
             String(
               metadata.voterName || "",
@@ -1137,10 +896,12 @@ async function verifyPayment(
             String(
               metadata.phone || "",
             ),
+          paystackTransactionId:
+            String(
+              transaction.id || "",
+            ),
           source:
             "PAYSTACK_VERIFY",
-          historicalVotePrice:
-            historicalPrice,
         },
       );
 
@@ -1149,13 +910,10 @@ async function verifyPayment(
         success: true,
         reference,
         contestantId,
-        firestoreContestantId:
-          contestant.documentId,
         votes,
         amount:
-          Number(
-            transaction.amount,
-          ) / 100,
+          Number(transaction.amount) /
+          100,
         alreadyCredited:
           result.alreadyCredited,
       },
@@ -1164,7 +922,7 @@ async function verifyPayment(
     );
   } catch (error) {
     console.error(
-      "Verification vote credit failed:",
+      "D1 verification error:",
       error,
     );
 
@@ -1172,7 +930,7 @@ async function verifyPayment(
       {
         success: false,
         error:
-          "Payment was successful but vote crediting is still being processed. Please keep your payment reference.",
+          "Payment was successful but vote crediting is still being processed.",
         reference,
       },
       500,
@@ -1189,7 +947,9 @@ function timingSafeEqual(
   a: Uint8Array,
   b: Uint8Array,
 ) {
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
 
   let result = 0;
 
@@ -1200,48 +960,14 @@ function timingSafeEqual(
   return result === 0;
 }
 
-function hexToBytes(hex: string) {
-  if (
-    !/^[0-9a-fA-F]+$/.test(hex) ||
-    hex.length % 2 !== 0
-  ) {
-    return null;
-  }
-
-  const bytes =
-    new Uint8Array(
-      hex.length / 2,
-    );
-
-  for (
-    let i = 0;
-    i < bytes.length;
-    i++
-  ) {
-    bytes[i] =
-      parseInt(
-        hex.slice(
-          i * 2,
-          i * 2 + 2,
-        ),
-        16,
-      );
-  }
-
-  return bytes;
-}
-
 async function verifyPaystackSignature(
   rawBody: string,
   signature: string,
   secret: string,
 ) {
-  if (!signature || !secret) return false;
-
-  const expected =
-    hexToBytes(signature);
-
-  if (!expected) return false;
+  if (!signature || !secret) {
+    return false;
+  }
 
   const key =
     await crypto.subtle.importKey(
@@ -1266,14 +992,23 @@ async function verifyPaystackSignature(
       ),
     );
 
+  const supplied =
+    new Uint8Array(
+      signature.match(/.{1,2}/g)!
+        .map(
+          byte =>
+            parseInt(byte, 16),
+        ),
+    );
+
   return timingSafeEqual(
     generated,
-    expected,
+    supplied,
   );
 }
 
 /* =========================================================
-   PAYSTACK WEBHOOK
+   WEBHOOK
 ========================================================= */
 
 async function handlePaystackWebhook(
@@ -1309,7 +1044,8 @@ async function handlePaystackWebhook(
   let event: any;
 
   try {
-    event = JSON.parse(rawBody);
+    event =
+      JSON.parse(rawBody);
   } catch {
     return json(
       {
@@ -1332,7 +1068,7 @@ async function handlePaystackWebhook(
   }
 
   const transaction =
-    event?.data;
+    event.data;
 
   if (
     !transaction?.reference ||
@@ -1353,23 +1089,17 @@ async function handlePaystackWebhook(
     return json({
       success: true,
       ignored: true,
-      reason:
-        "Not a NAPAS transaction.",
     });
   }
 
-  const metadata =
-    getPaymentMetadata(transaction);
-
   const contestantId =
-    getContestantIdFromTransaction(
-      transaction,
-    );
+    getContestantId(transaction);
 
   const votes =
-    getVotesFromTransaction(
-      transaction,
-    );
+    getVotes(transaction);
+
+  const votePrice =
+    getVotePrice(transaction);
 
   if (
     !contestantId ||
@@ -1387,15 +1117,9 @@ async function handlePaystackWebhook(
     );
   }
 
-  const historicalPrice =
-    getHistoricalVotePrice(
-      transaction,
-      DEFAULT_VOTE_PRICE,
-    );
-
   const expectedAmount =
     votes *
-    historicalPrice *
+    votePrice *
     100;
 
   if (
@@ -1411,14 +1135,6 @@ async function handlePaystackWebhook(
       400,
     );
   }
-
-  const email =
-    String(
-      transaction.customer?.email ||
-        "",
-    )
-      .trim()
-      .toLowerCase();
 
   try {
     const result =
@@ -1439,41 +1155,47 @@ async function handlePaystackWebhook(
               transaction.amount,
             ) / 100,
 
-          email,
+          email:
+            String(
+              transaction.customer?.email ||
+                "",
+            )
+              .trim()
+              .toLowerCase(),
+
+          voterName:
+            String(
+              getMetadata(transaction)
+                .voterName || "",
+            ),
+
+          phone:
+            String(
+              getMetadata(transaction)
+                .phone || "",
+            ),
 
           paystackTransactionId:
             String(
               transaction.id || "",
             ),
 
-          voterName:
-            String(
-              metadata.voterName || "",
-            ),
-
-          phone:
-            String(
-              metadata.phone || "",
-            ),
-
           source:
             "PAYSTACK_WEBHOOK",
-
-          historicalVotePrice:
-            historicalPrice,
         },
       );
 
     return json({
       success: true,
-      alreadyCredited:
-        result.alreadyCredited,
       reference:
         transaction.reference,
+      alreadyCredited:
+        result.alreadyCredited,
+      votes,
     });
   } catch (error) {
     console.error(
-      "Webhook credit failed:",
+      "Webhook D1 credit failed:",
       error,
     );
 
@@ -1510,8 +1232,10 @@ function isReconciliationAuthorized(
       "Authorization",
     ) || "";
 
-  const bearerKey =
-    authorization.startsWith("Bearer ")
+  const bearer =
+    authorization.startsWith(
+      "Bearer ",
+    )
       ? authorization
           .slice(7)
           .trim()
@@ -1520,13 +1244,13 @@ function isReconciliationAuthorized(
   return (
     headerKey ===
       env.RECONCILIATION_KEY ||
-    bearerKey ===
+    bearer ===
       env.RECONCILIATION_KEY
   );
 }
 
 /* =========================================================
-   PAYSTACK TRANSACTION
+   PAYSTACK VERIFY
 ========================================================= */
 
 async function getPaystackTransaction(
@@ -1559,24 +1283,16 @@ async function getPaystackTransaction(
 }
 
 /* =========================================================
-   RECONCILE ONE
+   RECONCILE ONE REFERENCE
 ========================================================= */
 
-async function reconcileOneReference(
+async function reconcileOne(
   env: Env,
   reference: string,
   dryRun: boolean,
 ) {
   const cleanReference =
     String(reference || "").trim();
-
-  if (!cleanReference) {
-    return {
-      action: "skipped",
-      reason:
-        "Empty transaction reference.",
-    };
-  }
 
   if (
     !cleanReference
@@ -1586,7 +1302,7 @@ async function reconcileOneReference(
     return {
       action: "skipped",
       reason:
-        "Reference is not a NAPAS reference.",
+        "Not a NAPAS reference.",
     };
   }
 
@@ -1619,18 +1335,14 @@ async function reconcileOneReference(
     };
   }
 
-  const metadata =
-    getPaymentMetadata(transaction);
-
   const contestantId =
-    getContestantIdFromTransaction(
-      transaction,
-    );
+    getContestantId(transaction);
 
   const votes =
-    getVotesFromTransaction(
-      transaction,
-    );
+    getVotes(transaction);
+
+  const votePrice =
+    getVotePrice(transaction);
 
   if (
     !contestantId ||
@@ -1641,19 +1353,13 @@ async function reconcileOneReference(
     return {
       action: "skipped",
       reason:
-        "Incomplete payment metadata.",
+        "Incomplete metadata.",
     };
   }
 
-  const historicalPrice =
-    getHistoricalVotePrice(
-      transaction,
-      DEFAULT_VOTE_PRICE,
-    );
-
   const expectedAmount =
     votes *
-    historicalPrice *
+    votePrice *
     100;
 
   if (
@@ -1663,62 +1369,59 @@ async function reconcileOneReference(
     return {
       action: "skipped",
       reason:
-        `Payment amount mismatch. Paystack=${transaction.amount}, expected=${expectedAmount}.`,
+        "Amount does not match vote metadata.",
     };
   }
 
-  const existing =
+  const existingPayment =
     await getPayment(
       env,
       cleanReference,
     );
 
-  if (existing) {
-    const credited =
-      extractFirestoreValue(
-        existing.fields
-          ?.votesCredited,
-      );
-
-    if (credited === true) {
-      return {
-        action:
-          "alreadyCredited",
-        contestantId,
-        votes,
-      };
-    }
-
+  if (
+    existingPayment &&
+    Number(
+      existingPayment.votes_applied || 0,
+    ) >=
+      Number(
+        existingPayment.votes || votes,
+      )
+  ) {
     return {
-      action:
-        "manualReview",
+      action: "alreadyCredited",
       contestantId,
       votes,
-      reason:
-        "Payment exists without votesCredited=true.",
+    };
+  }
+
+  const ledger =
+    await getLedgerEntry(
+      env,
+      cleanReference,
+    );
+
+  if (ledger) {
+    return {
+      action: "alreadyCredited",
+      contestantId,
+      votes,
     };
   }
 
   if (dryRun) {
     return {
-      action:
-        "wouldCredit",
+      action: "wouldCredit",
       contestantId,
       votes,
       amount:
-        Number(
-          transaction.amount,
-        ) / 100,
+        Number(transaction.amount) /
+        100,
     };
   }
 
-  const email =
-    String(
-      transaction.customer?.email ||
-        "",
-    )
-      .trim()
-      .toLowerCase();
+  const metadata =
+    getMetadata(transaction);
 
   const result =
     await creditVotes(
@@ -1732,11 +1435,16 @@ async function reconcileOneReference(
         votes,
 
         amount:
-          Number(
-            transaction.amount,
-          ) / 100,
+          Number(transaction.amount) /
+          100,
 
-        email,
+        email:
+          String(
+            transaction.customer?.email ||
+              "",
+          )
+            .trim()
+            .toLowerCase(),
 
         voterName:
           String(
@@ -1755,57 +1463,24 @@ async function reconcileOneReference(
 
         source:
           "RECONCILIATION",
-
-        historicalVotePrice:
-          historicalPrice,
       },
     );
 
-  if (result.alreadyCredited) {
-    return {
-      action:
-        "alreadyCredited",
-      contestantId,
-      votes,
-    };
-  }
-
   return {
     action:
-      "credited",
+      result.alreadyCredited
+        ? "alreadyCredited"
+        : "credited",
     contestantId,
     votes,
     amount:
-      Number(
-        transaction.amount,
-      ) / 100,
+      Number(transaction.amount) /
+      100,
   };
 }
 
 /* =========================================================
-   RECONCILIATION LOG
-========================================================= */
-
-async function logReconciliation(
-  env: Env,
-  reference: string,
-  action: string,
-  details: any,
-) {
-  console.log(
-    JSON.stringify({
-      type: "reconciliation",
-      reference,
-      action,
-      details,
-      timestamp:
-        new Date().toISOString(),
-    }),
-  );
-}
-
-/* =========================================================
-   RECONCILIATION
+   RECONCILE ENDPOINT
 ========================================================= */
 
 async function reconcilePayments(
@@ -1849,12 +1524,11 @@ async function reconcilePayments(
     );
   }
 
-  let references: string[] = [];
+  const references: string[] = [];
 
   if (
     typeof body?.reference ===
-      "string" &&
-    body.reference.trim()
+      "string"
   ) {
     references.push(
       body.reference.trim(),
@@ -1866,57 +1540,34 @@ async function reconcilePayments(
       body?.references,
     )
   ) {
-    references =
-      references.concat(
-        body.references
-          .filter(
-            (value: any) =>
-              typeof value ===
-                "string" &&
-              value.trim(),
-          )
-          .map(
-            (value: string) =>
-              value.trim(),
-          ),
-      );
+    for (
+      const reference of body.references
+    ) {
+      if (
+        typeof reference ===
+          "string" &&
+        reference.trim()
+      ) {
+        references.push(
+          reference.trim(),
+        );
+      }
+    }
   }
 
-  references = [
-    ...new Set(
-      references.map(
-        value => value.trim(),
+  const unique =
+    [
+      ...new Set(
+        references,
       ),
-    ),
-  ];
+    ];
 
-  if (
-    references.length === 0
-  ) {
+  if (!unique.length) {
     return json(
       {
         success: false,
         error:
-          "Provide at least one Paystack transaction reference.",
-      },
-      400,
-      origin,
-    );
-  }
-
-  if (
-    references.length >
-    MAX_RECONCILIATION_REFERENCES
-  ) {
-    return json(
-      {
-        success: false,
-        error:
-          "Too many references in one request.",
-        maximum:
-          MAX_RECONCILIATION_REFERENCES,
-        received:
-          references.length,
+          "Provide at least one reference.",
       },
       400,
       origin,
@@ -1929,25 +1580,21 @@ async function reconcilePayments(
   const result = {
     success: true,
     dryRun,
-    processed:
-      references.length,
+    processed: unique.length,
     credited: 0,
-    wouldCredit: 0,
     alreadyCredited: 0,
-    manualReview: 0,
+    wouldCredit: 0,
     skipped: 0,
     failed: 0,
-    totalVotesCredited: 0,
-    totalAmountCredited: 0,
     details: [] as any[],
   };
 
   for (
-    const reference of references
+    const reference of unique
   ) {
     try {
       const item =
-        await reconcileOneReference(
+        await reconcileOne(
           env,
           reference,
           dryRun,
@@ -1958,37 +1605,23 @@ async function reconcilePayments(
         ...item,
       });
 
-      await logReconciliation(
-        env,
-        reference,
-        item.action,
-        item,
-      );
-
-      switch (item.action) {
-        case "credited":
-          result.credited++;
-          result.totalVotesCredited +=
-            Number(item.votes || 0);
-          result.totalAmountCredited +=
-            Number(item.amount || 0);
-          break;
-
-        case "wouldCredit":
-          result.wouldCredit++;
-          break;
-
-        case "alreadyCredited":
-          result.alreadyCredited++;
-          break;
-
-        case "manualReview":
-          result.manualReview++;
-          break;
-
-        default:
-          result.skipped++;
-          break;
+      if (
+        item.action ===
+        "credited"
+      ) {
+        result.credited++;
+      } else if (
+        item.action ===
+        "alreadyCredited"
+      ) {
+        result.alreadyCredited++;
+      } else if (
+        item.action ===
+        "wouldCredit"
+      ) {
+        result.wouldCredit++;
+      } else {
+        result.skipped++;
       }
     } catch (error) {
       result.failed++;
@@ -2012,10 +1645,10 @@ async function reconcilePayments(
 }
 
 /* =========================================================
-   BATCH RECONCILIATION
-   ========================================================= */
+   D1 REPAIR EXISTING PAYMENT
+========================================================= */
 
-async function reconcileBatch(
+async function repairPayment(
   request: Request,
   env: Env,
 ) {
@@ -2032,7 +1665,7 @@ async function reconcileBatch(
       {
         success: false,
         error:
-          "Unauthorized reconciliation request.",
+          "Unauthorized repair request.",
       },
       401,
       origin,
@@ -2042,7 +1675,8 @@ async function reconcileBatch(
   let body: any;
 
   try {
-    body = await request.json();
+    body =
+      await request.json();
   } catch {
     return json(
       {
@@ -2055,120 +1689,259 @@ async function reconcileBatch(
     );
   }
 
-  const references =
-    Array.isArray(body?.references)
-      ? [
-          ...new Set(
-            body.references
-              .filter(
-                (v: any) =>
-                  typeof v === "string" &&
-                  v.trim(),
-              )
-              .map(
-                (v: string) =>
-                  v.trim(),
-              ),
-          ),
-        ]
-      : [];
+  const reference =
+    String(
+      body?.reference || "",
+    ).trim();
 
-  if (!references.length) {
+  if (!reference) {
     return json(
       {
         success: false,
         error:
-          "Provide references.",
+          "Reference is required.",
       },
       400,
       origin,
     );
   }
 
+  const payment =
+    await getPayment(
+      env,
+      reference,
+    );
+
+  if (!payment) {
+    return json(
+      {
+        success: false,
+        error:
+          "Payment not found in D1.",
+      },
+      404,
+      origin,
+    );
+  }
+
+  const contestantId =
+    String(
+      payment.contestant_id || "",
+    ).trim();
+
+  const votes =
+    Number(
+      payment.votes || 0,
+    );
+
   if (
-    references.length >
-    MAX_RECONCILIATION_REFERENCES
+    !contestantId ||
+    !Number.isInteger(votes) ||
+    votes < 1
   ) {
     return json(
       {
         success: false,
         error:
-          "Maximum 100 references per request.",
+          "Payment has invalid contestant or vote data.",
       },
       400,
       origin,
     );
   }
 
-  const dryRun =
-    body?.dryRun === true;
+  const ledger =
+    await getLedgerEntry(
+      env,
+      reference,
+    );
 
-  const summary = {
-    success: true,
-    dryRun,
-    total: references.length,
-    credited: 0,
-    alreadyCredited: 0,
-    wouldCredit: 0,
-    manualReview: 0,
-    skipped: 0,
-    failed: 0,
-    votesCredited: 0,
-    amountCredited: 0,
-    details: [] as any[],
-  };
-
-  for (const reference of references) {
-    try {
-      const item =
-        await reconcileOneReference(
-          env,
-          reference,
-          dryRun,
-        );
-
-      summary.details.push({
+  if (ledger) {
+    await env.DB
+      .prepare(
+        `
+        UPDATE payments
+        SET
+          votes_credited = ?,
+          votes_applied = ?,
+          status = 'success'
+        WHERE reference = ?
+        `,
+      )
+      .bind(
+        votes,
+        votes,
         reference,
-        ...item,
-      });
+      )
+      .run();
 
-      if (item.action === "credited") {
-        summary.credited++;
-        summary.votesCredited +=
-          Number(item.votes || 0);
-        summary.amountCredited +=
-          Number(item.amount || 0);
-      } else if (
-        item.action === "alreadyCredited"
-      ) {
-        summary.alreadyCredited++;
-      } else if (
-        item.action === "wouldCredit"
-      ) {
-        summary.wouldCredit++;
-      } else if (
-        item.action === "manualReview"
-      ) {
-        summary.manualReview++;
-      } else {
-        summary.skipped++;
-      }
-    } catch (error) {
-      summary.failed++;
-
-      summary.details.push({
+    return json(
+      {
+        success: true,
+        repaired: false,
+        alreadyCredited: true,
         reference,
-        action: "failed",
-        reason:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-    }
+        contestantId,
+        votes,
+      },
+      200,
+      origin,
+    );
   }
 
+  const contestant =
+    await getContestant(
+      env,
+      contestantId,
+    );
+
+  if (!contestant) {
+    return json(
+      {
+        success: false,
+        error:
+          "Contestant not found.",
+      },
+      404,
+      origin,
+    );
+  }
+
+  const now =
+    new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `
+      INSERT INTO vote_ledger (
+        reference,
+        contestant_id,
+        votes,
+        created_at,
+        source
+      )
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(reference) DO NOTHING
+      `,
+    ).bind(
+      reference,
+      contestantId,
+      votes,
+      now,
+      "REPAIR",
+    ),
+
+    env.DB.prepare(
+      `
+      UPDATE contestants
+      SET votes = votes + ?
+      WHERE id = ?
+      `,
+    ).bind(
+      votes,
+      contestantId,
+    ),
+
+    env.DB.prepare(
+      `
+      UPDATE payments
+      SET
+        votes_credited = ?,
+        votes_applied = ?,
+        status = 'success'
+      WHERE reference = ?
+      `,
+    ).bind(
+      votes,
+      votes,
+      reference,
+    ),
+  ]);
+
   return json(
-    summary,
+    {
+      success: true,
+      repaired: true,
+      alreadyCredited: false,
+      reference,
+      contestantId,
+      votes,
+    },
+    200,
+    origin,
+  );
+}
+
+/* =========================================================
+   HEALTH / DASHBOARD
+========================================================= */
+
+async function health(
+  env: Env,
+  origin: string | null,
+) {
+  const contestants =
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          COUNT(*) AS contestants,
+          COALESCE(SUM(votes), 0) AS votes
+        FROM contestants
+        `,
+      )
+      .first<any>();
+
+  const payments =
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes,
+          COALESCE(SUM(amount), 0) AS amount
+        FROM payments
+        WHERE status = 'success'
+        `,
+      )
+      .first<any>();
+
+  const ledger =
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes
+        FROM vote_ledger
+        `,
+      )
+      .first<any>();
+
+  return json(
+    {
+      service:
+        "NAPAS Secure Voting Payment API",
+
+      status: "ok",
+
+      sourceOfTruth: "D1",
+
+      contestants,
+
+      payments,
+
+      voteLedger: ledger,
+
+      endpoints: [
+        "/",
+        "/initialize",
+        "/verify",
+        "/paystack-webhook",
+        "/reconcile-payments",
+        "/repair-payment",
+      ],
+    },
     200,
     origin,
   );
@@ -2209,45 +1982,8 @@ export default {
           "GET" &&
         url.pathname === "/"
       ) {
-        return json(
-          {
-            service:
-              "NAPAS Secure Voting Payment API",
-
-            status: "ok",
-
-            firebase:
-              Boolean(
-                env.FIREBASE_CLIENT_EMAIL &&
-                  env.FIREBASE_PRIVATE_KEY &&
-                  env.FIREBASE_PROJECT_ID,
-              ),
-
-            paystack:
-              Boolean(
-                env.PAYSTACK_SECRET_KEY,
-              ),
-
-            reconciliation:
-              Boolean(
-                env.RECONCILIATION_KEY,
-              ),
-
-            endpoints: [
-              "/initialize",
-              "/verify",
-              "/paystack-webhook",
-              "/reconcile-payments",
-              "/reconcile-batch",
-            ],
-
-            crediting:
-              "atomic-idempotent",
-
-            maxReferencesPerRequest:
-              MAX_RECONCILIATION_REFERENCES,
-          },
-          200,
+        return await health(
+          env,
           origin,
         );
       }
@@ -2304,9 +2040,9 @@ export default {
         request.method ===
           "POST" &&
         url.pathname ===
-          "/reconcile-batch"
+          "/repair-payment"
       ) {
-        return await reconcileBatch(
+        return await repairPayment(
           request,
           env,
         );
@@ -2315,7 +2051,8 @@ export default {
       return json(
         {
           success: false,
-          error: "Not found.",
+          error:
+            "Not found.",
         },
         404,
         origin,
