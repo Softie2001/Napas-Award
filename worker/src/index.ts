@@ -18,7 +18,7 @@ const ALLOWED_ORIGINS = [
 
 const DEFAULT_VOTE_PRICE = 100;
 const MAX_VOTES_PER_PAYMENT = 1000;
-const MAX_RECONCILIATION_REFERENCES = 2;
+const MAX_RECONCILIATION_REFERENCES = 100;
 
 /* =========================================================
    FIREBASE TOKEN CACHE
@@ -108,9 +108,7 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function createFirebaseAccessToken(
-  env: Env,
-): Promise<string> {
+async function createFirebaseAccessToken(env: Env): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
 
   if (
@@ -125,21 +123,15 @@ async function createFirebaseAccessToken(
   const privateKey = env.FIREBASE_PRIVATE_KEY;
 
   if (!clientEmail) {
-    throw new Error(
-      "FIREBASE_CLIENT_EMAIL is not configured.",
-    );
+    throw new Error("FIREBASE_CLIENT_EMAIL is not configured.");
   }
 
   if (!projectId) {
-    throw new Error(
-      "FIREBASE_PROJECT_ID is not configured.",
-    );
+    throw new Error("FIREBASE_PROJECT_ID is not configured.");
   }
 
   if (!privateKey) {
-    throw new Error(
-      "FIREBASE_PRIVATE_KEY is not configured.",
-    );
+    throw new Error("FIREBASE_PRIVATE_KEY is not configured.");
   }
 
   const header = {
@@ -149,10 +141,8 @@ async function createFirebaseAccessToken(
 
   const payload = {
     iss: clientEmail,
-    scope:
-      "https://www.googleapis.com/auth/datastore",
-    aud:
-      "https://oauth2.googleapis.com/token",
+    scope: "https://www.googleapis.com/auth/datastore",
+    aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
   };
@@ -201,10 +191,7 @@ async function createFirebaseAccessToken(
   const data: any = await response.json();
 
   if (!response.ok || !data.access_token) {
-    console.error(
-      "Firebase token error:",
-      data,
-    );
+    console.error("Firebase token error:", data);
 
     throw new Error(
       data.error_description ||
@@ -257,25 +244,11 @@ function firestoreTimestamp(date = new Date()) {
 function extractFirestoreValue(field: any): any {
   if (!field) return null;
 
-  if ("stringValue" in field) {
-    return field.stringValue;
-  }
-
-  if ("integerValue" in field) {
-    return Number(field.integerValue);
-  }
-
-  if ("doubleValue" in field) {
-    return Number(field.doubleValue);
-  }
-
-  if ("booleanValue" in field) {
-    return field.booleanValue;
-  }
-
-  if ("timestampValue" in field) {
-    return field.timestampValue;
-  }
+  if ("stringValue" in field) return field.stringValue;
+  if ("integerValue" in field) return Number(field.integerValue);
+  if ("doubleValue" in field) return Number(field.doubleValue);
+  if ("booleanValue" in field) return field.booleanValue;
+  if ("timestampValue" in field) return field.timestampValue;
 
   return null;
 }
@@ -285,13 +258,11 @@ async function firestoreRequest(
   path: string,
   options: RequestInit = {},
 ) {
-  const token =
-    await createFirebaseAccessToken(env);
+  const token = await createFirebaseAccessToken(env);
 
-  const projectId =
-    encodeURIComponent(
-      env.FIREBASE_PROJECT_ID.trim(),
-    );
+  const projectId = encodeURIComponent(
+    env.FIREBASE_PROJECT_ID.trim(),
+  );
 
   const url =
     `https://firestore.googleapis.com/v1/projects/${projectId}` +
@@ -313,11 +284,10 @@ async function firestoreRequest(
 
 async function getVotingSettings(env: Env) {
   try {
-    const response =
-      await firestoreRequest(
-        env,
-        "settings/voting",
-      );
+    const response = await firestoreRequest(
+      env,
+      "settings/voting",
+    );
 
     if (!response.ok) {
       return {
@@ -326,8 +296,7 @@ async function getVotingSettings(env: Env) {
       };
     }
 
-    const document: any =
-      await response.json();
+    const document: any = await response.json();
 
     const votingOpen =
       extractFirestoreValue(
@@ -350,10 +319,7 @@ async function getVotingSettings(env: Env) {
       votePrice,
     };
   } catch (error) {
-    console.error(
-      "Voting settings error:",
-      error,
-    );
+    console.error("Voting settings error:", error);
 
     return {
       votingOpen: true,
@@ -373,24 +339,16 @@ async function getContestant(
   const cleanId =
     String(contestantId || "").trim();
 
-  if (!cleanId) {
-    return null;
-  }
+  if (!cleanId) return null;
 
-  const response =
-    await firestoreRequest(
-      env,
-      `contestants/${encodeURIComponent(
-        cleanId,
-      )}`,
-    );
+  const response = await firestoreRequest(
+    env,
+    `contestants/${encodeURIComponent(cleanId)}`,
+  );
 
-  if (!response.ok) {
-    return null;
-  }
+  if (!response.ok) return null;
 
-  const document: any =
-    await response.json();
+  const document: any = await response.json();
 
   return {
     ...document,
@@ -409,17 +367,12 @@ async function getPayment(
   env: Env,
   reference: string,
 ) {
-  const response =
-    await firestoreRequest(
-      env,
-      `payments/${encodeURIComponent(
-        reference,
-      )}`,
-    );
+  const response = await firestoreRequest(
+    env,
+    `payments/${encodeURIComponent(reference)}`,
+  );
 
-  if (!response.ok) {
-    return null;
-  }
+  if (!response.ok) return null;
 
   return response.json();
 }
@@ -536,8 +489,7 @@ async function initializePayment(
   request: Request,
   env: Env,
 ) {
-  const origin =
-    getOrigin(request);
+  const origin = getOrigin(request);
 
   let body: any;
 
@@ -759,7 +711,7 @@ async function initializePayment(
 }
 
 /* =========================================================
-   PERMANENT ATOMIC / IDEMPOTENT VOTE CREDIT
+   ATOMIC / IDEMPOTENT VOTE CREDIT
 ========================================================= */
 
 async function creditVotes(
@@ -817,19 +769,6 @@ async function creditVotes(
 
   const contestantDocument =
     contestant.documentName;
-
-  /*
-   * IMPORTANT:
-   *
-   * The payment document is created with exists:false.
-   *
-   * This means the payment reference itself becomes
-   * the idempotency lock.
-   *
-   * If Paystack sends the webhook again, Firestore
-   * rejects the payment creation and the vote increment
-   * is NOT performed.
-   */
 
   const paymentFields: Record<string, any> = {
     reference:
@@ -924,16 +863,13 @@ async function creditVotes(
                 exists: false,
               },
             },
-
             {
               transform: {
                 document:
                   contestantDocument,
-
                 fieldTransforms: [
                   {
                     fieldPath: "votes",
-
                     increment: {
                       integerValue:
                         String(
@@ -958,13 +894,6 @@ async function creditVotes(
 
   const errorText =
     await commitResponse.text();
-
-  /*
-   * ALREADY_EXISTS means another request already
-   * successfully claimed this payment reference.
-   *
-   * This is NOT a failure.
-   */
 
   if (
     errorText.includes(
@@ -995,8 +924,7 @@ async function verifyPayment(
   request: Request,
   env: Env,
 ) {
-  const origin =
-    getOrigin(request);
+  const origin = getOrigin(request);
 
   let body: any;
 
@@ -1030,13 +958,6 @@ async function verifyPayment(
       origin,
     );
   }
-
-  /*
-   * First check Firestore.
-   *
-   * If webhook already processed it,
-   * verification immediately succeeds.
-   */
 
   const existing =
     await getPayment(
@@ -1268,9 +1189,7 @@ function timingSafeEqual(
   a: Uint8Array,
   b: Uint8Array,
 ) {
-  if (a.length !== b.length) {
-    return false;
-  }
+  if (a.length !== b.length) return false;
 
   let result = 0;
 
@@ -1317,16 +1236,12 @@ async function verifyPaystackSignature(
   signature: string,
   secret: string,
 ) {
-  if (!signature || !secret) {
-    return false;
-  }
+  if (!signature || !secret) return false;
 
   const expected =
     hexToBytes(signature);
 
-  if (!expected) {
-    return false;
-  }
+  if (!expected) return false;
 
   const key =
     await crypto.subtle.importKey(
@@ -1549,30 +1464,14 @@ async function handlePaystackWebhook(
         },
       );
 
-    /*
-     * Return 200 for both a new credit and a duplicate.
-     *
-     * This tells Paystack the webhook was handled.
-     */
-
     return json({
       success: true,
-
       alreadyCredited:
         result.alreadyCredited,
-
       reference:
         transaction.reference,
     });
   } catch (error) {
-    /*
-     * IMPORTANT:
-     *
-     * Return 500 when actual processing failed.
-     *
-     * Paystack can retry the webhook.
-     */
-
     console.error(
       "Webhook credit failed:",
       error,
@@ -1764,7 +1663,7 @@ async function reconcileOneReference(
     return {
       action: "skipped",
       reason:
-        "Payment amount does not match vote metadata.",
+        `Payment amount mismatch. Paystack=${transaction.amount}, expected=${expectedAmount}.`,
     };
   }
 
@@ -1796,7 +1695,7 @@ async function reconcileOneReference(
       contestantId,
       votes,
       reason:
-        "Payment exists in Firestore without votesCredited=true. Not automatically incremented.",
+        "Payment exists without votesCredited=true.",
     };
   }
 
@@ -1881,6 +1780,28 @@ async function reconcileOneReference(
         transaction.amount,
       ) / 100,
   };
+}
+
+/* =========================================================
+   RECONCILIATION LOG
+========================================================= */
+
+async function logReconciliation(
+  env: Env,
+  reference: string,
+  action: string,
+  details: any,
+) {
+  console.log(
+    JSON.stringify({
+      type: "reconciliation",
+      reference,
+      action,
+      details,
+      timestamp:
+        new Date().toISOString(),
+    }),
+  );
 }
 
 /* =========================================================
@@ -1991,7 +1912,7 @@ async function reconcilePayments(
       {
         success: false,
         error:
-          "Maximum 2 transaction references can be reconciled at once.",
+          "Too many references in one request.",
         maximum:
           MAX_RECONCILIATION_REFERENCES,
         received:
@@ -2016,6 +1937,8 @@ async function reconcilePayments(
     manualReview: 0,
     skipped: 0,
     failed: 0,
+    totalVotesCredited: 0,
+    totalAmountCredited: 0,
     details: [] as any[],
   };
 
@@ -2035,9 +1958,20 @@ async function reconcilePayments(
         ...item,
       });
 
+      await logReconciliation(
+        env,
+        reference,
+        item.action,
+        item,
+      );
+
       switch (item.action) {
         case "credited":
           result.credited++;
+          result.totalVotesCredited +=
+            Number(item.votes || 0);
+          result.totalAmountCredited +=
+            Number(item.amount || 0);
           break;
 
         case "wouldCredit":
@@ -2072,6 +2006,169 @@ async function reconcilePayments(
 
   return json(
     result,
+    200,
+    origin,
+  );
+}
+
+/* =========================================================
+   BATCH RECONCILIATION
+   ========================================================= */
+
+async function reconcileBatch(
+  request: Request,
+  env: Env,
+) {
+  const origin =
+    getOrigin(request);
+
+  if (
+    !isReconciliationAuthorized(
+      request,
+      env,
+    )
+  ) {
+    return json(
+      {
+        success: false,
+        error:
+          "Unauthorized reconciliation request.",
+      },
+      401,
+      origin,
+    );
+  }
+
+  let body: any;
+
+  try {
+    body = await request.json();
+  } catch {
+    return json(
+      {
+        success: false,
+        error:
+          "Request body must be JSON.",
+      },
+      400,
+      origin,
+    );
+  }
+
+  const references =
+    Array.isArray(body?.references)
+      ? [
+          ...new Set(
+            body.references
+              .filter(
+                (v: any) =>
+                  typeof v === "string" &&
+                  v.trim(),
+              )
+              .map(
+                (v: string) =>
+                  v.trim(),
+              ),
+          ),
+        ]
+      : [];
+
+  if (!references.length) {
+    return json(
+      {
+        success: false,
+        error:
+          "Provide references.",
+      },
+      400,
+      origin,
+    );
+  }
+
+  if (
+    references.length >
+    MAX_RECONCILIATION_REFERENCES
+  ) {
+    return json(
+      {
+        success: false,
+        error:
+          "Maximum 100 references per request.",
+      },
+      400,
+      origin,
+    );
+  }
+
+  const dryRun =
+    body?.dryRun === true;
+
+  const summary = {
+    success: true,
+    dryRun,
+    total: references.length,
+    credited: 0,
+    alreadyCredited: 0,
+    wouldCredit: 0,
+    manualReview: 0,
+    skipped: 0,
+    failed: 0,
+    votesCredited: 0,
+    amountCredited: 0,
+    details: [] as any[],
+  };
+
+  for (const reference of references) {
+    try {
+      const item =
+        await reconcileOneReference(
+          env,
+          reference,
+          dryRun,
+        );
+
+      summary.details.push({
+        reference,
+        ...item,
+      });
+
+      if (item.action === "credited") {
+        summary.credited++;
+        summary.votesCredited +=
+          Number(item.votes || 0);
+        summary.amountCredited +=
+          Number(item.amount || 0);
+      } else if (
+        item.action === "alreadyCredited"
+      ) {
+        summary.alreadyCredited++;
+      } else if (
+        item.action === "wouldCredit"
+      ) {
+        summary.wouldCredit++;
+      } else if (
+        item.action === "manualReview"
+      ) {
+        summary.manualReview++;
+      } else {
+        summary.skipped++;
+      }
+    } catch (error) {
+      summary.failed++;
+
+      summary.details.push({
+        reference,
+        action: "failed",
+        reason:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      });
+    }
+  }
+
+  return json(
+    summary,
     200,
     origin,
   );
@@ -2141,6 +2238,7 @@ export default {
               "/verify",
               "/paystack-webhook",
               "/reconcile-payments",
+              "/reconcile-batch",
             ],
 
             crediting:
@@ -2197,6 +2295,18 @@ export default {
           "/reconcile-payments"
       ) {
         return await reconcilePayments(
+          request,
+          env,
+        );
+      }
+
+      if (
+        request.method ===
+          "POST" &&
+        url.pathname ===
+          "/reconcile-batch"
+      ) {
+        return await reconcileBatch(
           request,
           env,
         );
