@@ -1,15 +1,16 @@
 {
-  "name": "napas-payment-worker",
+  "name": "napas-worker",
   "version": "1.0.0",
-  "private": true,
+  "description": "NAPAS Voting Worker",
+  "main": "src/index.js",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "test": "echo \"Error: no test specified\""
   },
-  "dependencies": {
-    "jose": "^6.1.0"
-  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
   "devDependencies": {
-    "wrangler": "^4.120.0"
+    "wrangler": "^4.122.0"
   }
 }
