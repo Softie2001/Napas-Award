@@ -2,12 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "napas-payment-worker",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-11",
+  "compatibility_date": "2026-08-14",
+  "observability": {
+    "enabled": true
+  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "napas-voting-db",
-      "database_id": "YOUR_D1_DATABASE_ID"
+      "database_name": "YOUR_DATABASE_NAME",
+      "database_id": "YOUR_DATABASE_ID"
     }
   ]
 }
