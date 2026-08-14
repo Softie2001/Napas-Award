@@ -4,8 +4,6 @@ interface Env {
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
   RECONCILIATION_KEY?: string;
-
-  // Cloudflare D1
   DB: D1Database;
 }
 
@@ -31,7 +29,7 @@ let cachedFirebaseToken = "";
 let cachedFirebaseTokenExpiresAt = 0;
 
 /* =========================================================
-   CORS
+   CORS / RESPONSE
 ========================================================= */
 
 function getOrigin(request: Request) {
@@ -204,10 +202,7 @@ async function createFirebaseAccessToken(
   const data: any = await response.json();
 
   if (!response.ok || !data.access_token) {
-    console.error(
-      "Firebase token error:",
-      data,
-    );
+    console.error("Firebase token error:", data);
 
     throw new Error(
       data.error_description ||
@@ -311,7 +306,7 @@ async function firestoreRequest(
 }
 
 /* =========================================================
-   FIRESTORE SETTINGS
+   VOTING SETTINGS
 ========================================================= */
 
 async function getVotingSettings(env: Env) {
@@ -532,495 +527,6 @@ function isNapasTransaction(
 }
 
 /* =========================================================
-   D1 HELPERS
-========================================================= */
-
-/*
- * IMPORTANT:
- *
- * vote_ledger.reference is the permanent idempotency key.
- *
- * A payment is inserted into vote_ledger only once.
- *
- * This prevents the new-votes reconciliation from
- * adding the same payment twice.
- */
-
-async function d1PaymentAlreadyApplied(
-  env: Env,
-  reference: string,
-) {
-  const row = await env.DB
-    .prepare(
-      `
-      SELECT id, reference, contestant_id, votes, source
-      FROM vote_ledger
-      WHERE reference = ?
-      LIMIT 1
-      `,
-    )
-    .bind(reference)
-    .first();
-
-  return row || null;
-}
-
-async function markPaymentApplied(
-  env: Env,
-  reference: string,
-) {
-  /*
-   * Some existing databases may have votes_applied.
-   *
-   * We attempt the update but don't allow this optional
-   * bookkeeping field to stop the ledger from working.
-   */
-
-  try {
-    await env.DB
-      .prepare(
-        `
-        UPDATE payments
-        SET votes_applied = votes
-        WHERE reference = ?
-        `,
-      )
-      .bind(reference)
-      .run();
-  } catch {
-    // votes_applied may not exist in an older schema.
-  }
-}
-
-/* =========================================================
-   D1 VOTE STATUS
-========================================================= */
-
-async function d1VoteStatus(
-  request: Request,
-  env: Env,
-) {
-  const origin =
-    getOrigin(request);
-
-  const contestants =
-    await env.DB
-      .prepare(
-        `
-        SELECT
-          COALESCE(SUM(votes), 0) AS total_current_votes
-        FROM contestants
-        `,
-      )
-      .first<any>();
-
-  const payments =
-    await env.DB
-      .prepare(
-        `
-        SELECT
-          COUNT(*) AS payment_records,
-          COALESCE(SUM(votes), 0) AS payment_votes
-        FROM payments
-        WHERE status = 'success'
-        `,
-      )
-      .first<any>();
-
-  const ledger =
-    await env.DB
-      .prepare(
-        `
-        SELECT
-          COUNT(*) AS ledger_records,
-          COALESCE(SUM(votes), 0) AS ledger_votes
-        FROM vote_ledger
-        `,
-      )
-      .first<any>();
-
-  const applied =
-    await env.DB
-      .prepare(
-        `
-        SELECT
-          COUNT(*) AS applied_payments,
-          COALESCE(SUM(votes_applied), 0) AS applied_votes
-        FROM payments
-        WHERE status = 'success'
-        AND COALESCE(votes_applied, 0) > 0
-        `,
-      )
-      .first<any>();
-
-  return json(
-    {
-      success: true,
-
-      sourceOfTruth: "D1",
-
-      contestants: {
-        totalCurrentVotes:
-          Number(
-            contestants?.total_current_votes || 0,
-          ),
-      },
-
-      payments: {
-        records:
-          Number(
-            payments?.payment_records || 0,
-          ),
-        votes:
-          Number(
-            payments?.payment_votes || 0,
-          ),
-      },
-
-      ledger: {
-        records:
-          Number(
-            ledger?.ledger_records || 0,
-          ),
-        votes:
-          Number(
-            ledger?.ledger_votes || 0,
-          ),
-      },
-
-      applied: {
-        payments:
-          Number(
-            applied?.applied_payments || 0,
-          ),
-        votes:
-          Number(
-            applied?.applied_votes || 0,
-          ),
-      },
-
-      note:
-        "Ledger records are permanent idempotency records. Existing imported/reconciled payments are not automatically re-added unless they are missing from vote_ledger.",
-    },
-    200,
-    origin,
-  );
-}
-
-/* =========================================================
-   NEW-VOTES RECONCILIATION
-========================================================= */
-
-async function reconcileNewVotes(
-  request: Request,
-  env: Env,
-) {
-  const origin =
-    getOrigin(request);
-
-  if (
-    !isReconciliationAuthorized(
-      request,
-      env,
-    )
-  ) {
-    return json(
-      {
-        success: false,
-        error:
-          "Unauthorized reconciliation request.",
-      },
-      401,
-      origin,
-    );
-  }
-
-  let body: any = {};
-
-  try {
-    if (request.method === "POST") {
-      body = await request.json();
-    }
-  } catch {
-    return json(
-      {
-        success: false,
-        error:
-          "Request body must be valid JSON.",
-      },
-      400,
-      origin,
-    );
-  }
-
-  const dryRun =
-    body?.dryRun === true;
-
-  const limit =
-    Math.min(
-      Math.max(
-        Number(body?.limit || 100),
-        1,
-      ),
-      500,
-    );
-
-  /*
-   * We ONLY look at successful NAPAS payments.
-   *
-   * We do NOT use contestant.votes as the ledger.
-   *
-   * vote_ledger is the idempotency source.
-   */
-
-  const payments =
-    await env.DB
-      .prepare(
-        `
-        SELECT
-          reference,
-          contestant_id,
-          votes,
-          amount,
-          source,
-          status,
-          created_at
-        FROM payments
-        WHERE status = 'success'
-          AND reference LIKE 'NAPAS-%'
-          AND COALESCE(votes_applied, 0) = 0
-        ORDER BY created_at ASC
-        LIMIT ?
-        `,
-      )
-      .bind(limit)
-      .all<any>();
-
-  const result = {
-    success: true,
-    dryRun,
-    scanned: 0,
-    wouldApply: 0,
-    applied: 0,
-    alreadyApplied: 0,
-    skipped: 0,
-    failed: 0,
-    votesApplied: 0,
-    details: [] as any[],
-  };
-
-  for (const payment of payments.results || []) {
-    result.scanned++;
-
-    const reference =
-      String(
-        payment.reference || "",
-      ).trim();
-
-    const contestantId =
-      String(
-        payment.contestant_id || "",
-      ).trim();
-
-    const votes =
-      Number(payment.votes || 0);
-
-    if (
-      !reference ||
-      !contestantId ||
-      !Number.isInteger(votes) ||
-      votes < 1
-    ) {
-      result.skipped++;
-
-      result.details.push({
-        reference,
-        action: "skipped",
-        reason:
-          "Invalid payment record.",
-      });
-
-      continue;
-    }
-
-    try {
-      const existing =
-        await d1PaymentAlreadyApplied(
-          env,
-          reference,
-        );
-
-      if (existing) {
-        /*
-         * The payment is already represented in
-         * vote_ledger.
-         *
-         * Do NOT insert it again.
-         */
-
-        await markPaymentApplied(
-          env,
-          reference,
-        );
-
-        result.alreadyApplied++;
-
-        result.details.push({
-          reference,
-          contestantId,
-          votes,
-          action:
-            "alreadyApplied",
-        });
-
-        continue;
-      }
-
-      if (dryRun) {
-        result.wouldApply++;
-        result.votesApplied += votes;
-
-        result.details.push({
-          reference,
-          contestantId,
-          votes,
-          action:
-            "wouldApply",
-        });
-
-        continue;
-      }
-
-      /*
-       * Insert the payment into the ledger.
-       *
-       * reference is UNIQUE/PRIMARY KEY in the intended
-       * ledger design, so duplicate execution is safe.
-       */
-
-      try {
-        await env.DB
-          .prepare(
-            `
-            INSERT INTO vote_ledger
-              (
-                reference,
-                contestant_id,
-                votes,
-                created_at,
-                source
-              )
-            VALUES
-              (?, ?, ?, ?, ?)
-            `,
-          )
-          .bind(
-            reference,
-            contestantId,
-            votes,
-            payment.created_at ||
-              new Date().toISOString(),
-            "PAYMENT_RECONCILIATION",
-          )
-          .run();
-      } catch (insertError) {
-        /*
-         * If another request inserted the same reference
-         * concurrently, verify it instead of adding votes.
-         */
-
-        const duplicate =
-          await d1PaymentAlreadyApplied(
-            env,
-            reference,
-          );
-
-        if (duplicate) {
-          await markPaymentApplied(
-            env,
-            reference,
-          );
-
-          result.alreadyApplied++;
-
-          result.details.push({
-            reference,
-            contestantId,
-            votes,
-            action:
-              "alreadyApplied",
-          });
-
-          continue;
-        }
-
-        throw insertError;
-      }
-
-      /*
-       * Update the D1 contestant vote total.
-       *
-       * The ledger is written first.
-       */
-
-      await env.DB
-        .prepare(
-          `
-          UPDATE contestants
-          SET votes = COALESCE(votes, 0) + ?
-          WHERE id = ?
-          `,
-        )
-        .bind(
-          votes,
-          contestantId,
-        )
-        .run();
-
-      /*
-       * Mark the payment as applied.
-       */
-
-      await markPaymentApplied(
-        env,
-        reference,
-      );
-
-      result.applied++;
-      result.votesApplied += votes;
-
-      result.details.push({
-        reference,
-        contestantId,
-        votes,
-        action:
-          "applied",
-      });
-    } catch (error) {
-      result.failed++;
-
-      result.details.push({
-        reference,
-        contestantId,
-        votes,
-        action:
-          "failed",
-        reason:
-          error instanceof Error
-            ? error.message
-            : String(error),
-      });
-    }
-  }
-
-  return json(
-    result,
-    200,
-    origin,
-  );
-}
-
-/* =========================================================
    INITIALIZE PAYMENT
 ========================================================= */
 
@@ -1039,8 +545,7 @@ async function initializePayment(
     return json(
       {
         success: false,
-        error:
-          "Invalid request body.",
+        error: "Invalid request body.",
       },
       400,
       origin,
@@ -1079,8 +584,7 @@ async function initializePayment(
     return json(
       {
         success: false,
-        error:
-          "Contestant is required.",
+        error: "Contestant is required.",
       },
       400,
       origin,
@@ -1127,8 +631,7 @@ async function initializePayment(
     return json(
       {
         success: false,
-        error:
-          "Voting is currently closed.",
+        error: "Voting is currently closed.",
       },
       403,
       origin,
@@ -1254,7 +757,7 @@ async function initializePayment(
 }
 
 /* =========================================================
-   FIRESTORE ATOMIC VOTE CREDIT
+   ATOMIC FIRESTORE VOTE CREDIT
 ========================================================= */
 
 async function creditVotes(
@@ -1274,6 +777,12 @@ async function creditVotes(
 ) {
   const reference =
     String(payment.reference || "").trim();
+
+  if (!reference) {
+    throw new Error(
+      "Payment reference is required.",
+    );
+  }
 
   const contestant =
     await getContestant(
@@ -1303,9 +812,6 @@ async function creditVotes(
 
   const paymentDocument =
     `projects/${projectId}/databases/(default)/documents/payments/${reference}`;
-
-  const contestantDocument =
-    contestant.documentName;
 
   const paymentFields: Record<string, any> = {
     reference:
@@ -1393,10 +899,8 @@ async function creditVotes(
           writes: [
             {
               update: {
-                name:
-                  paymentDocument,
-                fields:
-                  paymentFields,
+                name: paymentDocument,
+                fields: paymentFields,
               },
               currentDocument: {
                 exists: false,
@@ -1406,12 +910,11 @@ async function creditVotes(
             {
               transform: {
                 document:
-                  contestantDocument,
+                  contestant.documentName,
 
                 fieldTransforms: [
                   {
-                    fieldPath:
-                      "votes",
+                    fieldPath: "votes",
 
                     increment: {
                       integerValue:
@@ -1448,6 +951,11 @@ async function creditVotes(
       credited: false,
     };
   }
+
+  console.error(
+    "Atomic Firestore vote credit failed:",
+    errorText,
+  );
 
   throw new Error(
     "Unable to atomically record payment and credit votes.",
@@ -1556,9 +1064,7 @@ async function verifyPayment(
     paystackData.data;
 
   if (
-    !isNapasTransaction(
-      transaction,
-    )
+    !isNapasTransaction(transaction)
   ) {
     return json(
       {
@@ -1900,6 +1406,8 @@ async function handlePaystackWebhook(
     return json({
       success: true,
       ignored: true,
+      reason:
+        "Not a NAPAS transaction.",
     });
   }
 
@@ -2011,8 +1519,10 @@ async function handlePaystackWebhook(
 
     return json({
       success: true,
+
       alreadyCredited:
         result.alreadyCredited,
+
       reference:
         transaction.reference,
     });
@@ -2328,7 +1838,7 @@ async function reconcileOneReference(
 }
 
 /* =========================================================
-   RECONCILIATION
+   RECONCILE PAYMENTS
 ========================================================= */
 
 async function reconcilePayments(
@@ -2436,6 +1946,10 @@ async function reconcilePayments(
         success: false,
         error:
           "Maximum 2 transaction references can be reconciled at once.",
+        maximum:
+          MAX_RECONCILIATION_REFERENCES,
+        received:
+          references.length,
       },
       400,
       origin,
@@ -2518,6 +2032,624 @@ async function reconcilePayments(
 }
 
 /* =========================================================
+   D1 HELPERS
+========================================================= */
+
+async function d1HasColumn(
+  env: Env,
+  table: string,
+  column: string,
+) {
+  const result =
+    await env.DB.prepare(
+      `PRAGMA table_info(${table})`,
+    ).all<any>();
+
+  return result.results.some(
+    row => row.name === column,
+  );
+}
+
+/* =========================================================
+   D1 VOTE STATUS
+========================================================= */
+
+async function d1VoteStatus(
+  request: Request,
+  env: Env,
+) {
+  const origin =
+    getOrigin(request);
+
+  try {
+    const contestants =
+      await env.DB.prepare(
+        `
+        SELECT
+          COALESCE(SUM(votes), 0) AS total_votes
+        FROM contestants
+        `,
+      ).first<any>();
+
+    const payments =
+      await env.DB.prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes,
+          COALESCE(SUM(amount), 0) AS amount
+        FROM payments
+        WHERE status = 'success'
+        `,
+      ).first<any>();
+
+    const ledger =
+      await env.DB.prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes
+        FROM vote_ledger
+        `,
+      ).first<any>();
+
+    const imported =
+      await env.DB.prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes
+        FROM payments
+        WHERE status = 'success'
+          AND source = 'FIRESTORE_IMPORT'
+        `,
+      ).first<any>();
+
+    const reconciled =
+      await env.DB.prepare(
+        `
+        SELECT
+          COUNT(*) AS records,
+          COALESCE(SUM(votes), 0) AS votes
+        FROM payments
+        WHERE status = 'success'
+          AND source = 'RECONCILIATION'
+        `,
+      ).first<any>();
+
+    const appliedColumn =
+      await d1HasColumn(
+        env,
+        "payments",
+        "votes_applied",
+      );
+
+    let appliedVotes = 0;
+
+    if (appliedColumn) {
+      const applied =
+        await env.DB.prepare(
+          `
+          SELECT
+            COALESCE(SUM(votes_applied), 0)
+              AS votes
+          FROM payments
+          WHERE status = 'success'
+          `,
+        ).first<any>();
+
+      appliedVotes =
+        Number(
+          applied?.votes || 0,
+        );
+    }
+
+    return json(
+      {
+        success: true,
+
+        d1: {
+          contestantVotes:
+            Number(
+              contestants?.total_votes || 0,
+            ),
+
+          paymentRecords:
+            Number(
+              payments?.records || 0,
+            ),
+
+          paymentVotes:
+            Number(
+              payments?.votes || 0,
+            ),
+
+          paymentAmount:
+            Number(
+              payments?.amount || 0,
+            ),
+
+          appliedVotes,
+
+          ledgerRecords:
+            Number(
+              ledger?.records || 0,
+            ),
+
+          ledgerVotes:
+            Number(
+              ledger?.votes || 0,
+            ),
+        },
+
+        sources: {
+          firestoreImport: {
+            records:
+              Number(
+                imported?.records || 0,
+              ),
+            votes:
+              Number(
+                imported?.votes || 0,
+              ),
+          },
+
+          reconciliation: {
+            records:
+              Number(
+                reconciled?.records || 0,
+              ),
+            votes:
+              Number(
+                reconciled?.votes || 0,
+              ),
+          },
+        },
+
+        difference: {
+          paymentMinusContestants:
+            Number(
+              payments?.votes || 0,
+            ) -
+            Number(
+              contestants?.total_votes || 0,
+            ),
+
+          paymentMinusLedger:
+            Number(
+              payments?.votes || 0,
+            ) -
+            Number(
+              ledger?.votes || 0,
+            ),
+        },
+      },
+      200,
+      origin,
+    );
+  } catch (error) {
+    console.error(
+      "D1 vote status error:",
+      error,
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      500,
+      origin,
+    );
+  }
+}
+
+/* =========================================================
+   NEW VOTES RECONCILIATION
+========================================================= */
+
+async function reconcileNewVotes(
+  request: Request,
+  env: Env,
+) {
+  const origin =
+    getOrigin(request);
+
+  if (
+    !isReconciliationAuthorized(
+      request,
+      env,
+    )
+  ) {
+    return json(
+      {
+        success: false,
+        error:
+          "Unauthorized reconciliation request.",
+      },
+      401,
+      origin,
+    );
+  }
+
+  let body: any = {};
+
+  try {
+    if (request.method === "POST") {
+      body = await request.json();
+    }
+  } catch {
+    return json(
+      {
+        success: false,
+        error:
+          "Request body must be valid JSON.",
+      },
+      400,
+      origin,
+    );
+  }
+
+  const dryRun =
+    body?.dryRun === true;
+
+  try {
+    /*
+     * Find every successful D1 payment whose
+     * votes have not yet been applied.
+     *
+     * We intentionally do NOT use created_at
+     * because the current payments table does
+     * not have a created_at column.
+     */
+
+    const hasAppliedColumn =
+      await d1HasColumn(
+        env,
+        "payments",
+        "votes_applied",
+      );
+
+    if (!hasAppliedColumn) {
+      return json(
+        {
+          success: false,
+          error:
+            "payments.votes_applied column is missing. Run the D1 schema migration first.",
+        },
+        500,
+        origin,
+      );
+    }
+
+    const rows =
+      await env.DB.prepare(
+        `
+        SELECT
+          id,
+          reference,
+          contestant_id,
+          votes,
+          amount,
+          status,
+          source,
+          COALESCE(votes_applied, 0)
+            AS votes_applied
+        FROM payments
+        WHERE status = 'success'
+          AND COALESCE(votes_applied, 0) < votes
+        ORDER BY id ASC
+        LIMIT 500
+        `,
+      ).all<any>();
+
+    const results = {
+      success: true,
+      dryRun,
+      scanned:
+        rows.results.length,
+      wouldApply: 0,
+      applied: 0,
+      alreadyApplied: 0,
+      failed: 0,
+      totalVotesToApply: 0,
+      details: [] as any[],
+    };
+
+    for (
+      const payment of rows.results
+    ) {
+      const totalVotes =
+        Number(
+          payment.votes || 0,
+        );
+
+      const alreadyApplied =
+        Number(
+          payment.votes_applied || 0,
+        );
+
+      const missing =
+        Math.max(
+          0,
+          totalVotes -
+            alreadyApplied,
+        );
+
+      if (
+        !payment.contestant_id ||
+        missing <= 0
+      ) {
+        results.alreadyApplied++;
+
+        results.details.push({
+          reference:
+            payment.reference,
+          action:
+            "alreadyApplied",
+          contestantId:
+            payment.contestant_id,
+          votes:
+            totalVotes,
+          votesApplied:
+            alreadyApplied,
+        });
+
+        continue;
+      }
+
+      results.totalVotesToApply +=
+        missing;
+
+      if (dryRun) {
+        results.wouldApply++;
+
+        results.details.push({
+          reference:
+            payment.reference,
+          action:
+            "wouldApply",
+          contestantId:
+            payment.contestant_id,
+          missingVotes:
+            missing,
+        });
+
+        continue;
+      }
+
+      try {
+        /*
+         * First make sure the contestant exists.
+         */
+        const contestant =
+          await env.DB.prepare(
+            `
+            SELECT id, votes
+            FROM contestants
+            WHERE id = ?
+            LIMIT 1
+            `,
+          )
+            .bind(
+              payment.contestant_id,
+            )
+            .first<any>();
+
+        if (!contestant) {
+          throw new Error(
+            `Contestant ${payment.contestant_id} does not exist in D1.`,
+          );
+        }
+
+        /*
+         * Atomic D1 transaction:
+         *
+         * 1. Increment contestant votes.
+         * 2. Mark exactly the missing votes
+         *    as applied.
+         * 3. Add an audit ledger record.
+         */
+
+        const newApplied =
+          alreadyApplied +
+          missing;
+
+        const newReference =
+          `D1-APPLY-${payment.reference}`;
+
+        const existingLedger =
+          await env.DB.prepare(
+            `
+            SELECT id
+            FROM vote_ledger
+            WHERE reference = ?
+            LIMIT 1
+            `,
+          )
+            .bind(newReference)
+            .first<any>();
+
+        if (!existingLedger) {
+          await env.DB.batch([
+            env.DB.prepare(
+              `
+              UPDATE contestants
+              SET votes = COALESCE(votes, 0) + ?
+              WHERE id = ?
+              `,
+            ).bind(
+              missing,
+              payment.contestant_id,
+            ),
+
+            env.DB.prepare(
+              `
+              UPDATE payments
+              SET votes_applied = ?
+              WHERE id = ?
+              `,
+            ).bind(
+              newApplied,
+              payment.id,
+            ),
+
+            env.DB.prepare(
+              `
+              INSERT INTO vote_ledger
+              (
+                reference,
+                contestant_id,
+                votes,
+                created_at,
+                source
+              )
+              VALUES (?, ?, ?, ?, ?)
+              `,
+            ).bind(
+              newReference,
+              payment.contestant_id,
+              missing,
+              new Date().toISOString(),
+              "NEW_VOTES_RECONCILIATION",
+            ),
+          ]);
+        } else {
+          /*
+           * Ledger already exists.
+           * Only bring votes_applied up to date.
+           */
+          await env.DB.prepare(
+            `
+            UPDATE payments
+            SET votes_applied = ?
+            WHERE id = ?
+            `,
+          )
+            .bind(
+              newApplied,
+              payment.id,
+            )
+            .run();
+        }
+
+        results.applied++;
+
+        results.details.push({
+          reference:
+            payment.reference,
+          action:
+            "applied",
+          contestantId:
+            payment.contestant_id,
+          votesApplied:
+            missing,
+          totalVotes:
+            totalVotes,
+          votesAppliedTotal:
+            newApplied,
+        });
+      } catch (error) {
+        results.failed++;
+
+        results.details.push({
+          reference:
+            payment.reference,
+          action:
+            "failed",
+          contestantId:
+            payment.contestant_id,
+          missingVotes:
+            missing,
+          reason:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        });
+      }
+    }
+
+    return json(
+      results,
+      200,
+      origin,
+    );
+  } catch (error) {
+    console.error(
+      "New votes reconciliation error:",
+      error,
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      500,
+      origin,
+    );
+  }
+}
+
+/* =========================================================
+   D1 DATABASE TEST
+========================================================= */
+
+async function d1Health(
+  request: Request,
+  env: Env,
+) {
+  const origin =
+    getOrigin(request);
+
+  try {
+    const result =
+      await env.DB.prepare(
+        `
+        SELECT
+          'D1 connected' AS status,
+          COUNT(*) AS contestants
+        FROM contestants
+        `,
+      ).first<any>();
+
+    return json(
+      {
+        success: true,
+        db: true,
+        status:
+          result?.status,
+        contestants:
+          Number(
+            result?.contestants || 0,
+          ),
+      },
+      200,
+      origin,
+    );
+  } catch (error) {
+    return json(
+      {
+        success: false,
+        db: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+      500,
+      origin,
+    );
+  }
+}
+
+/* =========================================================
    WORKER
 ========================================================= */
 
@@ -2547,9 +2679,9 @@ export default {
       new URL(request.url);
 
     try {
-      /* =====================================================
+      /* ---------------------------------------------
          ROOT
-      ===================================================== */
+      --------------------------------------------- */
 
       if (
         request.method ===
@@ -2588,15 +2720,13 @@ export default {
               "/verify",
               "/paystack-webhook",
               "/reconcile-payments",
+              "/d1-health",
               "/d1-vote-status",
               "/reconcile-new-votes",
             ],
 
             crediting:
               "atomic-idempotent",
-
-            d1Crediting:
-              "ledger-idempotent",
 
             maxReferencesPerRequest:
               MAX_RECONCILIATION_REFERENCES,
@@ -2606,15 +2736,27 @@ export default {
         );
       }
 
-      /* =====================================================
-         D1 STATUS
-      ===================================================== */
+      /* ---------------------------------------------
+         D1 HEALTH
+      --------------------------------------------- */
 
       if (
-        request.method ===
-          "GET" &&
-        url.pathname ===
-          "/d1-vote-status"
+        request.method === "GET" &&
+        url.pathname === "/d1-health"
+      ) {
+        return await d1Health(
+          request,
+          env,
+        );
+      }
+
+      /* ---------------------------------------------
+         D1 VOTE STATUS
+      --------------------------------------------- */
+
+      if (
+        request.method === "GET" &&
+        url.pathname === "/d1-vote-status"
       ) {
         return await d1VoteStatus(
           request,
@@ -2622,29 +2764,9 @@ export default {
         );
       }
 
-      /* =====================================================
-         NEW VOTES RECONCILIATION
-      ===================================================== */
-
-      if (
-        (
-          request.method ===
-            "POST" ||
-          request.method ===
-            "GET"
-        ) &&
-        url.pathname ===
-          "/reconcile-new-votes"
-      ) {
-        return await reconcileNewVotes(
-          request,
-          env,
-        );
-      }
-
-      /* =====================================================
-         PAYMENT INITIALIZE
-      ===================================================== */
+      /* ---------------------------------------------
+         INITIALIZE
+      --------------------------------------------- */
 
       if (
         request.method ===
@@ -2658,9 +2780,9 @@ export default {
         );
       }
 
-      /* =====================================================
+      /* ---------------------------------------------
          VERIFY
-      ===================================================== */
+      --------------------------------------------- */
 
       if (
         request.method ===
@@ -2674,9 +2796,9 @@ export default {
         );
       }
 
-      /* =====================================================
-         WEBHOOK
-      ===================================================== */
+      /* ---------------------------------------------
+         PAYSTACK WEBHOOK
+      --------------------------------------------- */
 
       if (
         request.method ===
@@ -2690,9 +2812,9 @@ export default {
         );
       }
 
-      /* =====================================================
-         OLD RECONCILIATION
-      ===================================================== */
+      /* ---------------------------------------------
+         PAYSTACK RECONCILIATION
+      --------------------------------------------- */
 
       if (
         request.method ===
@@ -2701,6 +2823,22 @@ export default {
           "/reconcile-payments"
       ) {
         return await reconcilePayments(
+          request,
+          env,
+        );
+      }
+
+      /* ---------------------------------------------
+         NEW VOTES RECONCILIATION
+      --------------------------------------------- */
+
+      if (
+        request.method ===
+          "POST" &&
+        url.pathname ===
+          "/reconcile-new-votes"
+      ) {
+        return await reconcileNewVotes(
           request,
           env,
         );
