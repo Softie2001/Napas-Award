@@ -19,17 +19,24 @@ const ALLOWED_ORIGINS = [
 
 const DEFAULT_VOTE_PRICE = 100;
 const MAX_VOTES_PER_PAYMENT = 1000;
-const MAX_RECONCILIATION_REFERENCES = 2;
 
-/* =========================================================
-   FIREBASE TOKEN CACHE
-========================================================= */
+/*
+ * IMPORTANT:
+ * Keep reconciliation requests small.
+ *
+ * Each reference can cause multiple external requests:
+ * Paystack + Firestore + contestant lookup + token handling.
+ *
+ * Sending 146 references in one Worker invocation can exceed
+ * Cloudflare's subrequest limit.
+ */
+const MAX_RECONCILIATION_REFERENCES = 10;
 
 let cachedFirebaseToken = "";
 let cachedFirebaseTokenExpiresAt = 0;
 
 /* =========================================================
-   CORS / RESPONSE
+   CORS
 ========================================================= */
 
 function getOrigin(request: Request) {
@@ -67,7 +74,7 @@ function json(
 }
 
 /* =========================================================
-   BASE64 / FIREBASE AUTH
+   BASE64
 ========================================================= */
 
 function base64UrlEncode(input: ArrayBuffer | string) {
@@ -108,6 +115,10 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 
   return bytes.buffer;
 }
+
+/* =========================================================
+   FIREBASE TOKEN
+========================================================= */
 
 async function createFirebaseAccessToken(
   env: Env,
@@ -219,7 +230,7 @@ async function createFirebaseAccessToken(
 }
 
 /* =========================================================
-   FIRESTORE
+   FIRESTORE HELPERS
 ========================================================= */
 
 function firestoreString(value: unknown) {
@@ -378,9 +389,7 @@ async function getContestant(
   const response =
     await firestoreRequest(
       env,
-      `contestants/${encodeURIComponent(
-        cleanId,
-      )}`,
+      `contestants/${encodeURIComponent(cleanId)}`,
     );
 
   if (!response.ok) {
@@ -410,9 +419,7 @@ async function getPayment(
   const response =
     await firestoreRequest(
       env,
-      `payments/${encodeURIComponent(
-        reference,
-      )}`,
+      `payments/${encodeURIComponent(reference)}`,
     );
 
   if (!response.ok) {
@@ -609,9 +616,7 @@ async function initializePayment(
 
   if (
     !email ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-      email,
-    )
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   ) {
     return json(
       {
@@ -721,8 +726,7 @@ async function initializePayment(
   if (
     !paystackResponse.ok ||
     !paystackData.status ||
-    !paystackData.data
-      ?.authorization_url
+    !paystackData.data?.authorization_url
   ) {
     return json(
       {
@@ -746,8 +750,7 @@ async function initializePayment(
       firestoreContestantId:
         contestant.documentId,
       authorization_url:
-        paystackData.data
-          .authorization_url,
+        paystackData.data.authorization_url,
       access_code:
         paystackData.data.access_code,
     },
@@ -818,44 +821,29 @@ async function creditVotes(
       firestoreString(reference),
 
     contestantId:
-      firestoreString(
-        payment.contestantId,
-      ),
+      firestoreString(payment.contestantId),
 
     firestoreContestantId:
-      firestoreString(
-        contestant.documentId,
-      ),
+      firestoreString(contestant.documentId),
 
     votes:
-      firestoreInteger(
-        payment.votes,
-      ),
+      firestoreInteger(payment.votes),
 
     amount:
-      firestoreDouble(
-        payment.amount,
-      ),
+      firestoreDouble(payment.amount),
 
     email:
-      firestoreString(
-        payment.email,
-      ),
+      firestoreString(payment.email),
 
     voterName:
-      firestoreString(
-        payment.voterName || "",
-      ),
+      firestoreString(payment.voterName || ""),
 
     phone:
-      firestoreString(
-        payment.phone || "",
-      ),
+      firestoreString(payment.phone || ""),
 
     paystackTransactionId:
       firestoreString(
-        payment.paystackTransactionId ||
-          "",
+        payment.paystackTransactionId || "",
       ),
 
     status:
@@ -863,8 +851,7 @@ async function creditVotes(
 
     source:
       firestoreString(
-        payment.source ||
-          "PAYSTACK",
+        payment.source || "PAYSTACK",
       ),
 
     votesCredited:
@@ -942,9 +929,7 @@ async function creditVotes(
     await commitResponse.text();
 
   if (
-    errorText.includes(
-      "ALREADY_EXISTS",
-    )
+    errorText.includes("ALREADY_EXISTS")
   ) {
     return {
       alreadyCredited: true,
@@ -1015,8 +1000,7 @@ async function verifyPayment(
   if (existing) {
     const credited =
       extractFirestoreValue(
-        existing.fields
-          ?.votesCredited,
+        existing.fields?.votesCredited,
       );
 
     if (credited === true) {
@@ -1046,8 +1030,7 @@ async function verifyPayment(
   if (
     !paystackResponse.ok ||
     !paystackData.status ||
-    paystackData.data
-      ?.status !== "success"
+    paystackData.data?.status !== "success"
   ) {
     return json(
       {
@@ -1063,9 +1046,7 @@ async function verifyPayment(
   const transaction =
     paystackData.data;
 
-  if (
-    !isNapasTransaction(transaction)
-  ) {
+  if (!isNapasTransaction(transaction)) {
     return json(
       {
         success: false,
@@ -1153,8 +1134,7 @@ async function verifyPayment(
 
   const email =
     String(
-      transaction.customer?.email ||
-        "",
+      transaction.customer?.email || "",
     )
       .trim()
       .toLowerCase();
@@ -1168,22 +1148,14 @@ async function verifyPayment(
           contestantId,
           votes,
           amount:
-            Number(
-              transaction.amount,
-            ) / 100,
+            Number(transaction.amount) / 100,
           email,
           paystackTransactionId:
-            String(
-              transaction.id || "",
-            ),
+            String(transaction.id || ""),
           voterName:
-            String(
-              metadata.voterName || "",
-            ),
+            String(metadata.voterName || ""),
           phone:
-            String(
-              metadata.phone || "",
-            ),
+            String(metadata.phone || ""),
           source:
             "PAYSTACK_VERIFY",
           historicalVotePrice:
@@ -1200,9 +1172,7 @@ async function verifyPayment(
           contestant.documentId,
         votes,
         amount:
-          Number(
-            transaction.amount,
-          ) / 100,
+          Number(transaction.amount) / 100,
         alreadyCredited:
           result.alreadyCredited,
       },
@@ -1258,9 +1228,7 @@ function hexToBytes(hex: string) {
   }
 
   const bytes =
-    new Uint8Array(
-      hex.length / 2,
-    );
+    new Uint8Array(hex.length / 2);
 
   for (
     let i = 0;
@@ -1398,11 +1366,7 @@ async function handlePaystackWebhook(
     });
   }
 
-  if (
-    !isNapasTransaction(
-      transaction,
-    )
-  ) {
+  if (!isNapasTransaction(transaction)) {
     return json({
       success: true,
       ignored: true,
@@ -1838,7 +1802,7 @@ async function reconcileOneReference(
 }
 
 /* =========================================================
-   RECONCILE PAYMENTS
+   PAYSTACK RECONCILIATION
 ========================================================= */
 
 async function reconcilePayments(
@@ -1945,7 +1909,7 @@ async function reconcilePayments(
       {
         success: false,
         error:
-          "Maximum 2 transaction references can be reconciled at once.",
+          `Maximum ${MAX_RECONCILIATION_REFERENCES} transaction references can be reconciled at once.`,
         maximum:
           MAX_RECONCILIATION_REFERENCES,
         received:
@@ -2297,15 +2261,6 @@ async function reconcileNewVotes(
     body?.dryRun === true;
 
   try {
-    /*
-     * Find every successful D1 payment whose
-     * votes have not yet been applied.
-     *
-     * We intentionally do NOT use created_at
-     * because the current payments table does
-     * not have a created_at column.
-     */
-
     const hasAppliedColumn =
       await d1HasColumn(
         env,
@@ -2325,6 +2280,16 @@ async function reconcileNewVotes(
       );
     }
 
+    /*
+     * IMPORTANT:
+     *
+     * This endpoint intentionally handles only
+     * a limited number of rows per invocation.
+     *
+     * The frontend/admin can call it repeatedly.
+     */
+    const BATCH_SIZE = 50;
+
     const rows =
       await env.DB.prepare(
         `
@@ -2342,13 +2307,16 @@ async function reconcileNewVotes(
         WHERE status = 'success'
           AND COALESCE(votes_applied, 0) < votes
         ORDER BY id ASC
-        LIMIT 500
+        LIMIT ?
         `,
-      ).all<any>();
+      )
+        .bind(BATCH_SIZE)
+        .all<any>();
 
     const results = {
       success: true,
       dryRun,
+      batchSize: BATCH_SIZE,
       scanned:
         rows.results.length,
       wouldApply: 0,
@@ -2363,9 +2331,7 @@ async function reconcileNewVotes(
       const payment of rows.results
     ) {
       const totalVotes =
-        Number(
-          payment.votes || 0,
-        );
+        Number(payment.votes || 0);
 
       const alreadyApplied =
         Number(
@@ -2422,9 +2388,6 @@ async function reconcileNewVotes(
       }
 
       try {
-        /*
-         * First make sure the contestant exists.
-         */
         const contestant =
           await env.DB.prepare(
             `
@@ -2444,15 +2407,6 @@ async function reconcileNewVotes(
             `Contestant ${payment.contestant_id} does not exist in D1.`,
           );
         }
-
-        /*
-         * Atomic D1 transaction:
-         *
-         * 1. Increment contestant votes.
-         * 2. Mark exactly the missing votes
-         *    as applied.
-         * 3. Add an audit ledger record.
-         */
 
         const newApplied =
           alreadyApplied +
@@ -2478,7 +2432,8 @@ async function reconcileNewVotes(
             env.DB.prepare(
               `
               UPDATE contestants
-              SET votes = COALESCE(votes, 0) + ?
+              SET votes =
+                COALESCE(votes, 0) + ?
               WHERE id = ?
               `,
             ).bind(
@@ -2518,10 +2473,6 @@ async function reconcileNewVotes(
             ),
           ]);
         } else {
-          /*
-           * Ledger already exists.
-           * Only bring votes_applied up to date.
-           */
           await env.DB.prepare(
             `
             UPDATE payments
@@ -2598,7 +2549,7 @@ async function reconcileNewVotes(
 }
 
 /* =========================================================
-   D1 DATABASE TEST
+   D1 HEALTH
 ========================================================= */
 
 async function d1Health(
@@ -2650,7 +2601,7 @@ async function d1Health(
 }
 
 /* =========================================================
-   WORKER
+   WORKER — ES MODULE FORMAT
 ========================================================= */
 
 export default {
@@ -2662,8 +2613,7 @@ export default {
       getOrigin(request);
 
     if (
-      request.method ===
-      "OPTIONS"
+      request.method === "OPTIONS"
     ) {
       return new Response(
         null,
@@ -2679,13 +2629,8 @@ export default {
       new URL(request.url);
 
     try {
-      /* ---------------------------------------------
-         ROOT
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "GET" &&
+        request.method === "GET" &&
         url.pathname === "/"
       ) {
         return json(
@@ -2694,6 +2639,9 @@ export default {
               "NAPAS Secure Voting Payment API",
 
             status: "ok",
+
+            moduleFormat:
+              "ES Module",
 
             firebase:
               Boolean(
@@ -2736,10 +2684,6 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         D1 HEALTH
-      --------------------------------------------- */
-
       if (
         request.method === "GET" &&
         url.pathname === "/d1-health"
@@ -2749,10 +2693,6 @@ export default {
           env,
         );
       }
-
-      /* ---------------------------------------------
-         D1 VOTE STATUS
-      --------------------------------------------- */
 
       if (
         request.method === "GET" &&
@@ -2764,15 +2704,9 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         INITIALIZE
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "POST" &&
-        url.pathname ===
-          "/initialize"
+        request.method === "POST" &&
+        url.pathname === "/initialize"
       ) {
         return await initializePayment(
           request,
@@ -2780,15 +2714,9 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         VERIFY
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "POST" &&
-        url.pathname ===
-          "/verify"
+        request.method === "POST" &&
+        url.pathname === "/verify"
       ) {
         return await verifyPayment(
           request,
@@ -2796,15 +2724,9 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         PAYSTACK WEBHOOK
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "POST" &&
-        url.pathname ===
-          "/paystack-webhook"
+        request.method === "POST" &&
+        url.pathname === "/paystack-webhook"
       ) {
         return await handlePaystackWebhook(
           request,
@@ -2812,15 +2734,9 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         PAYSTACK RECONCILIATION
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "POST" &&
-        url.pathname ===
-          "/reconcile-payments"
+        request.method === "POST" &&
+        url.pathname === "/reconcile-payments"
       ) {
         return await reconcilePayments(
           request,
@@ -2828,15 +2744,9 @@ export default {
         );
       }
 
-      /* ---------------------------------------------
-         NEW VOTES RECONCILIATION
-      --------------------------------------------- */
-
       if (
-        request.method ===
-          "POST" &&
-        url.pathname ===
-          "/reconcile-new-votes"
+        request.method === "POST" &&
+        url.pathname === "/reconcile-new-votes"
       ) {
         return await reconcileNewVotes(
           request,
