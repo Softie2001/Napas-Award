@@ -1,19 +1,19 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta charset="UTF-8">
 
-  <meta name="theme-color" content="#16052f">
   <meta
-    name="description"
-    content="NAPAS Dinner & Award Night 2026 official voting portal."
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
   >
 
-  <title>NAPAS Dinner & Award Night 2026 — Vote</title>
+  <meta
+    name="description"
+    content="NAPAS Dinner & Award Night 2026 — Official Final Results"
+  >
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <title>NAPAS Dinner & Award Night 2026 — Final Results</title>
 
   <link
     href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
@@ -22,113 +22,449 @@
 
   <link rel="stylesheet" href="css/styles.css">
 
-  <!-- Small premium share-control styling.
-       This intentionally stays subtle so it doesn't look like an AI-generated UI. -->
   <style>
-    .contestant-actions {
+    :root {
+      --purple: #6c3df5;
+      --purple-dark: #4c20c9;
+      --gold: #c99a3d;
+      --gold-light: #e8c77a;
+      --dark: #111111;
+      --muted: #777777;
+      --white: #ffffff;
+      --border: #e9e9e9;
+      --soft: #f7f5fb;
+      --success: #16834a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", sans-serif;
+      background: #ffffff;
+      color: var(--dark);
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .results-page {
+      min-height: 100vh;
+    }
+
+    /* HEADER */
+
+    .results-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: auto;
+      min-height: 78px;
+      padding: 0 24px;
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-top: 14px;
+      justify-content: space-between;
+      gap: 20px;
     }
 
-    .contestant-actions .contestant-vote {
-      flex: 1;
+    .brand {
+      font-family: "Sora", sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -.04em;
     }
 
-    .share-contestant {
-      width: 44px;
-      min-width: 44px;
-      height: 44px;
-      border: 1px solid rgba(22, 5, 47, 0.12);
-      border-radius: 12px;
-      background: #fff;
-      color: #16052f;
+    .brand span {
+      color: var(--purple);
+    }
+
+    .final-label {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      cursor: pointer;
+      gap: 8px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: #f3edff;
+      color: var(--purple-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    /* HERO */
+
+    .results-hero {
+      background:
+        radial-gradient(
+          circle at 20% 20%,
+          rgba(108,61,245,.18),
+          transparent 35%
+        ),
+        radial-gradient(
+          circle at 85% 30%,
+          rgba(201,154,61,.18),
+          transparent 35%
+        ),
+        #111111;
+      color: #ffffff;
+      padding: 100px 24px 90px;
+      text-align: center;
+    }
+
+    .hero-inner {
+      max-width: 900px;
+      margin: auto;
+    }
+
+    .hero-eyebrow {
+      color: var(--gold-light);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+
+    .results-hero h1 {
+      margin: 0;
+      font-family: "Sora", sans-serif;
+      font-size: clamp(42px, 7vw, 78px);
+      line-height: .98;
+      letter-spacing: -.06em;
+    }
+
+    .hero-copy {
+      max-width: 650px;
+      margin: 25px auto 0;
+      color: rgba(255,255,255,.72);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    /* TOTAL */
+
+    .overall-card {
+      max-width: 760px;
+      margin: -48px auto 0;
+      position: relative;
+      z-index: 2;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 34px 30px;
+      text-align: center;
+      box-shadow: 0 24px 70px rgba(0,0,0,.12);
+    }
+
+    .overall-label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    #overallVotes {
+      display: block;
+      font-family: "Sora", sans-serif;
+      font-size: clamp(42px, 7vw, 72px);
+      line-height: 1;
+      color: var(--purple);
+      letter-spacing: -.05em;
+    }
+
+    .overall-subtitle {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* WINNERS */
+
+    .results-section {
+      max-width: 1200px;
+      margin: auto;
+      padding: 90px 24px;
+    }
+
+    .section-heading {
+      text-align: center;
+      margin-bottom: 45px;
+    }
+
+    .section-eyebrow {
+      color: var(--purple);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    .section-heading h2 {
+      margin: 10px 0 12px;
+      font-family: "Sora", sans-serif;
+      font-size: clamp(32px, 5vw, 52px);
+      letter-spacing: -.05em;
+    }
+
+    .section-heading p {
+      max-width: 620px;
+      margin: auto;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* WINNER GRID */
+
+    #winnersGrid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+    }
+
+    .winner-card {
+      overflow: hidden;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: 0 14px 45px rgba(0,0,0,.06);
       transition:
-        transform .18s ease,
-        border-color .18s ease,
-        background .18s ease;
-      padding: 0;
+        transform .2s ease,
+        box-shadow .2s ease;
     }
 
-    .share-contestant:hover {
-      transform: translateY(-1px);
-      border-color: rgba(22, 5, 47, 0.28);
-      background: #faf8fd;
+    .winner-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 22px 55px rgba(0,0,0,.1);
     }
 
-    .share-contestant:active {
-      transform: translateY(0);
+    .winner-photo {
+      aspect-ratio: 1.15 / 1;
+      overflow: hidden;
+      background:
+        linear-gradient(
+          135deg,
+          #171717,
+          #302050
+        );
     }
 
-    .share-contestant svg {
-      width: 18px;
-      height: 18px;
-      stroke: currentColor;
+    .winner-photo img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
     }
 
-    .share-contestant[aria-busy="true"] {
-      opacity: .6;
-      pointer-events: none;
+    .winner-placeholder {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 64px;
     }
 
-    .direct-contestant {
-      outline: 3px solid rgba(116, 56, 255, .22);
-      outline-offset: 5px;
-      animation: directContestantPulse 1.8s ease;
+    .winner-body {
+      padding: 28px;
     }
 
-    @keyframes directContestantPulse {
-      0% {
-        outline-color: rgba(116, 56, 255, .65);
-      }
-
-      100% {
-        outline-color: rgba(116, 56, 255, 0);
-      }
+    .winner-number {
+      color: var(--gold);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      margin-bottom: 14px;
     }
 
-    .share-toast {
-      position: fixed;
-      left: 50%;
-      bottom: 92px;
-      transform: translate(-50%, 15px);
-      z-index: 9999;
-      background: #16052f;
-      color: #fff;
-      padding: 11px 16px;
-      border-radius: 10px;
+    .winner-category {
+      color: var(--purple);
       font-size: 13px;
       font-weight: 700;
-      opacity: 0;
-      pointer-events: none;
-      transition:
-        opacity .2s ease,
-        transform .2s ease;
-      box-shadow: 0 12px 35px rgba(0,0,0,.18);
-      white-space: nowrap;
+      margin-bottom: 8px;
     }
 
-    .share-toast.show {
-      opacity: 1;
-      transform: translate(-50%, 0);
+    .winner-name {
+      margin: 0;
+      font-family: "Sora", sans-serif;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: -.04em;
     }
 
-    @media (max-width: 600px) {
-      .share-contestant {
-        width: 42px;
-        min-width: 42px;
-        height: 42px;
+    .winner-votes {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 15px;
+    }
+
+    .winner-votes strong {
+      font-family: "Sora", sans-serif;
+      font-size: 30px;
+    }
+
+    .winner-votes span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .12em;
+    }
+
+    /* OVERALL RANKING */
+
+    .ranking-section {
+      background: var(--soft);
+    }
+
+    #overallLeaderboard {
+      max-width: 850px;
+      margin: auto;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .final-leader-row {
+      min-height: 76px;
+      padding: 14px 20px;
+      display: grid;
+      grid-template-columns: 45px 1fr auto;
+      align-items: center;
+      gap: 15px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .final-leader-row:last-child {
+      border-bottom: 0;
+    }
+
+    .final-rank {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #f1ebff;
+      color: var(--purple);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .final-leader-row div {
+      min-width: 0;
+    }
+
+    .final-leader-row strong {
+      display: block;
+    }
+
+    .final-leader-row small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .results-empty {
+      padding: 60px 25px;
+      text-align: center;
+    }
+
+    .results-empty h2 {
+      font-family: "Sora", sans-serif;
+      margin-bottom: 8px;
+    }
+
+    .results-empty p {
+      color: var(--muted);
+    }
+
+    /* FOOTER */
+
+    .results-footer {
+      padding: 45px 24px;
+      background: #111111;
+      color: rgba(255,255,255,.6);
+      text-align: center;
+    }
+
+    .results-footer strong {
+      color: #ffffff;
+      font-family: "Sora", sans-serif;
+    }
+
+    .results-footer p {
+      margin: 10px 0 0;
+      font-size: 12px;
+    }
+
+    /* MOBILE */
+
+    @media (max-width: 760px) {
+
+      .header-inner {
+        min-height: 68px;
       }
 
-      .share-toast {
-        max-width: calc(100vw - 30px);
-        white-space: normal;
-        text-align: center;
+      .brand {
+        font-size: 17px;
+      }
+
+      .final-label {
+        font-size: 10px;
+        padding: 8px 10px;
+      }
+
+      .results-hero {
+        padding: 75px 20px 75px;
+      }
+
+      .hero-copy {
+        font-size: 14px;
+      }
+
+      .overall-card {
+        margin-left: 18px;
+        margin-right: 18px;
+        padding: 28px 20px;
+      }
+
+      .results-section {
+        padding: 65px 18px;
+      }
+
+      #winnersGrid {
+        grid-template-columns: 1fr;
+      }
+
+      .winner-name {
+        font-size: 24px;
+      }
+
+      .final-leader-row {
+        grid-template-columns: 36px 1fr auto;
+        padding: 13px 14px;
+      }
+
+      .final-leader-row > strong {
+        font-size: 14px;
       }
     }
   </style>
@@ -136,285 +472,43 @@
 
 <body>
 
-  <header class="site-header">
-    <div class="shell header-inner">
+  <div class="results-page">
 
-      <a
-        class="brand"
-        href="#home"
-        aria-label="NAPAS Dinner and Award Night home"
-      >
-        <img
-          src="assets/napas-logo.jpeg"
-          alt="NAPAS logo"
-        >
+    <!-- HEADER -->
 
-        <span>
-          <strong>NAPAS</strong>
-          <small>DINNER &amp; AWARD NIGHT 2026</small>
-        </span>
-      </a>
+    <header class="results-header">
+      <div class="header-inner">
 
-      <nav
-        class="desktop-nav"
-        aria-label="Primary"
-      >
-        <a href="#home">Home</a>
-        <a href="#categories">Categories</a>
-        <a href="#voting">Vote Now</a>
-        <a href="#results">Results</a>
-      </nav>
-
-      <button
-        class="menu-btn"
-        id="menuBtn"
-        type="button"
-        aria-label="Open menu"
-        aria-expanded="false"
-      >
-        ☰
-      </button>
-
-    </div>
-
-    <div
-      class="mobile-menu"
-      id="mobileMenu"
-    >
-      <a href="#home">Home</a>
-      <a href="#categories">Categories</a>
-      <a href="#voting">Vote Now</a>
-      <a href="#results">Results</a>
-      <a href="#how-it-works">How It Works</a>
-    </div>
-  </header>
-
-
-  <main>
-
-    <!-- =====================================================
-         HERO
-    ====================================================== -->
-
-    <section
-      class="hero"
-      id="home"
-    >
-
-      <div class="hero-art">
-
-        <img
-          src="assets/event-flyer.jpeg"
-          alt="NAPAS Dinner & Award Night 2026 event flyer"
-        >
-
-        <div class="hero-shade"></div>
-
-        <div class="hero-copy shell">
-
-          <span class="eyebrow">
-            NATIONAL ASSOCIATION OF POLYTECHNIC ACCOUNTANCY STUDENTS
-          </span>
-
-          <h1>
-            NAPAS<br>
-            <span>Dinner &amp; Award Night</span>
-          </h1>
-
-          <p>
-            Celebrating excellence. Recognising impact.
-            Supporting the students who make NAPAS special.
-          </p>
-
-          <div class="hero-actions">
-
-            <a
-              class="btn btn-gold"
-              href="#voting"
-            >
-              Vote Now
-              <span>→</span>
-            </a>
-
-            <a
-              class="btn btn-ghost-light"
-              href="#how-it-works"
-            >
-              How It Works
-            </a>
-
-          </div>
-
-        </div>
-      </div>
-
-      <div class="hero-bottom shell">
-
-        <div>
-          <span class="label">EVENT DATE</span>
-          <strong>21 AUGUST 2026</strong>
+        <div class="brand">
+          NAPAS <span>2026</span>
         </div>
 
-        <div>
-          <span class="label">VOTING</span>
-          <strong id="heroStatus">Checking...</strong>
-        </div>
-
-        <div
-          class="countdown"
-          aria-label="Countdown"
-        >
-
-          <div>
-            <b id="days">00</b>
-            <span>Days</span>
-          </div>
-
-          <div>
-            <b id="hours">00</b>
-            <span>Hrs</span>
-          </div>
-
-          <div>
-            <b id="minutes">00</b>
-            <span>Min</span>
-          </div>
-
-          <div>
-            <b id="seconds">00</b>
-            <span>Sec</span>
-          </div>
-
+        <div class="final-label">
+          ✓ Voting Closed
         </div>
 
       </div>
+    </header>
 
-    </section>
 
+    <!-- HERO -->
 
-    <!-- =====================================================
-         VOTING
-    ====================================================== -->
+    <section class="results-hero">
 
-    <section
-      class="section shell"
-      id="voting"
-    >
+      <div class="hero-inner">
 
-      <div class="section-heading">
-
-        <div>
-
-          <span class="eyebrow purple">
-            OFFICIAL VOTING
-          </span>
-
-          <h2>
-            Support your favourite nominees
-          </h2>
-
-          <p>
-            Browse all contestants. You can vote for contestants across different categories.
-          </p>
-
+        <div class="hero-eyebrow">
+          NAPAS Dinner & Award Night 2026
         </div>
 
-        <span
-          class="live-pill"
-          id="status"
-        >
-          Checking voting...
-        </span>
+        <h1>
+          Final Results
+        </h1>
 
-      </div>
-
-
-      <div class="feature-strip">
-
-        <div class="feature-copy">
-
-          <span class="eyebrow purple">
-            VOTE WITH NAPAS
-          </span>
-
-          <h3>
-            Every vote counts.
-          </h3>
-
-          <p>
-            Choose a contestant, select your vote package and complete secure payment.
-          </p>
-
-        </div>
-
-        <div class="price-box">
-
-          <span>PRICE PER VOTE</span>
-
-          <strong id="price">
-            ₦100
-          </strong>
-
-        </div>
-
-      </div>
-
-
-      <div class="filter-bar">
-
-        <label class="search-box">
-
-          <span>⌕</span>
-
-          <input
-            id="search"
-            type="search"
-            placeholder="Search contestant..."
-            autocomplete="off"
-          >
-
-        </label>
-
-
-        <select
-          id="category"
-          aria-label="Filter by category"
-        >
-          <option value="">
-            All categories
-          </option>
-        </select>
-
-      </div>
-
-
-      <div
-        class="pills"
-        id="pills"
-      ></div>
-
-
-      <div
-        class="grid"
-        id="grid"
-      ></div>
-
-
-      <div
-        class="empty hidden"
-        id="empty"
-      >
-
-        <div class="empty-icon">
-          ⌕
-        </div>
-
-        <h3>
-          No contestants found
-        </h3>
-
-        <p>
-          Try another name or category.
+        <p class="hero-copy">
+          The votes have been counted and the winners have been
+          officially determined. Congratulations to every winner
+          and nominee who made NAPAS 2026 memorable.
         </p>
 
       </div>
@@ -422,518 +516,125 @@
     </section>
 
 
-    <!-- =====================================================
-         CATEGORIES
-    ====================================================== -->
+    <!-- OVERALL TOTAL -->
 
-    <section
-      class="section section-soft"
-      id="categories"
-    >
+    <section>
 
-      <div class="shell">
+      <div class="overall-card">
 
-        <div class="section-heading">
+        <span class="overall-label">
+          Overall Votes Cast
+        </span>
 
-          <div>
+        <strong id="overallVotes">
+          0
+        </strong>
 
-            <span class="eyebrow purple">
-              CATEGORIES
-            </span>
-
-            <h2>
-              Browse award categories
-            </h2>
-
-            <p>
-              Find a category and discover its nominees.
-            </p>
-
-          </div>
-
+        <div class="overall-subtitle">
+          Final verified votes across all award categories
         </div>
-
-
-        <div
-          class="category-grid"
-          id="categoryGrid"
-        ></div>
 
       </div>
 
     </section>
 
 
-    <!-- =====================================================
-         RESULTS
-    ====================================================== -->
+    <!-- WINNERS -->
 
-    <section
-      class="section shell"
-      id="results"
-    >
+    <main>
 
-      <div class="section-heading">
+      <section class="results-section">
 
-        <div>
+        <div class="section-heading">
 
-          <span class="eyebrow purple">
-            LIVE RESULTS
-          </span>
+          <div class="section-eyebrow">
+            Congratulations
+          </div>
 
           <h2>
-            Leaderboard
+            The Winners
           </h2>
 
           <p>
-            Vote totals update as verified payments are completed.
+            Meet the students who received the highest verified
+            number of votes in their respective award categories.
           </p>
 
         </div>
 
-      </div>
+        <div id="winnersGrid">
+          <div class="results-empty">
+            <h2>
+              Loading final results...
+            </h2>
 
-
-      <div class="leaderboard-wrap">
-
-        <div class="leaderboard-head">
-
-          <strong>
-            Top contestants
-          </strong>
-
-          <span>
-            Votes
-          </span>
-
+            <p>
+              Please wait while the official results are loaded.
+            </p>
+          </div>
         </div>
 
-        <div id="leaderboard"></div>
-
-      </div>
-
-    </section>
+      </section>
 
 
-    <!-- =====================================================
-         HOW IT WORKS
-    ====================================================== -->
+      <!-- OVERALL RANKING -->
 
-    <section
-      class="section shell"
-      id="how-it-works"
-    >
+      <section class="ranking-section">
 
-      <div class="how-card">
+        <div class="results-section">
 
-        <div>
+          <div class="section-heading">
 
-          <span class="eyebrow purple">
-            HOW IT WORKS
-          </span>
+            <div class="section-eyebrow">
+              Final Standings
+            </div>
 
-          <h2>
-            Vote in three simple steps.
-          </h2>
+            <h2>
+              Overall Vote Ranking
+            </h2>
 
-        </div>
+            <p>
+              A final overview of the highest vote totals recorded
+              across the NAPAS award categories.
+            </p>
 
-
-        <div class="steps">
-
-          <div>
-            <b>01</b>
-            <strong>Choose</strong>
-            <p>Select any contestant.</p>
           </div>
 
-          <div>
-            <b>02</b>
-            <strong>Vote</strong>
-            <p>Choose your vote package.</p>
-          </div>
-
-          <div>
-            <b>03</b>
-            <strong>Pay</strong>
-            <p>Complete secure Paystack payment.</p>
+          <div id="overallLeaderboard">
+            <div class="results-empty">
+              <p>
+                Loading final standings...
+              </p>
+            </div>
           </div>
 
         </div>
 
-      </div>
+      </section>
 
-    </section>
-
-
-    <!-- =====================================================
-         TRUST
-    ====================================================== -->
-
-    <section class="trust shell">
-
-      <div>
-
-        <span></span>
-
-        <div>
-          <strong>Secure Payment</strong>
-          <small>
-            Payments are processed through Paystack.
-          </small>
-        </div>
-
-      </div>
+    </main>
 
 
-      <div>
+    <!-- FOOTER -->
 
-        <span>✓</span>
+    <footer class="results-footer">
 
-        <div>
-          <strong>Verified Votes</strong>
-
-          <small>
-            Votes are credited only after payment verification.
-          </small>
-        </div>
-
-      </div>
-
-
-      <div>
-
-        <span>↻</span>
-
-        <div>
-          <strong>Live Results</strong>
-
-          <small>
-            Verified vote totals update from Firebase.
-          </small>
-        </div>
-
-      </div>
-
-    </section>
-
-  </main>
-
-
-  <!-- =======================================================
-       FOOTER
-  ======================================================== -->
-
-  <footer>
-
-    <div class="shell footer-inner">
-
-      <div class="brand footer-brand">
-
-        <img
-          src="assets/napas-logo.jpeg"
-          alt="NAPAS logo"
-        >
-
-        <span>
-          <strong>NAPAS</strong>
-          <small>
-            Dinner &amp; Award Night 2026
-          </small>
-        </span>
-
-      </div>
+      <strong>
+        NAPAS Dinner & Award Night 2026
+      </strong>
 
       <p>
-        Official NAPAS voting portal.
+        Official final results • Voting has ended
       </p>
 
-    </div>
-
-  </footer>
-
-
-  <!-- =======================================================
-       MOBILE BOTTOM NAV
-  ======================================================== -->
-
-  <nav
-    class="bottom-nav"
-    aria-label="Mobile navigation"
-  >
-
-    <a href="#home">
-      <span>⌂</span>
-      Home
-    </a>
-
-    <a href="#categories">
-      <span>▦</span>
-      Categories
-    </a>
-
-    <a
-      href="#voting"
-      class="active"
-    >
-      <span>✓</span>
-      Vote
-    </a>
-
-    <a href="#results">
-      <span>♜</span>
-      Results
-    </a>
-
-  </nav>
-
-
-  <!-- =======================================================
-       SHARE TOAST
-  ======================================================== -->
-
-  <div
-    class="share-toast"
-    id="shareToast"
-    role="status"
-    aria-live="polite"
-  ></div>
-
-
-  <!-- =======================================================
-       VOTING MODAL
-  ======================================================== -->
-
-  <div
-    class="modal hidden"
-    id="voteModal"
-    aria-hidden="true"
-  >
-
-    <div class="modal-panel">
-
-      <button
-        class="modal-close"
-        id="modalClose"
-        type="button"
-        aria-label="Close"
-      >
-        ×
-      </button>
-
-
-      <div class="modal-top">
-
-        <div
-          class="modal-photo"
-          id="modalPhoto"
-        ></div>
-
-        <div>
-
-          <span
-            class="eyebrow purple"
-            id="modalCategory"
-          ></span>
-
-          <h2 id="modalName"></h2>
-
-          <p id="modalMeta"></p>
-
-        </div>
-
-      </div>
-
-
-      <div class="modal-section">
-
-        <label class="modal-label">
-          Select number of votes
-        </label>
-
-        <div
-          class="vote-options"
-          id="voteOptions"
-        ></div>
-
-      </div>
-
-
-      <div class="custom-vote">
-
-        <label for="customVotes">
-          Or enter another quantity
-        </label>
-
-        <input
-          id="customVotes"
-          type="number"
-          min="1"
-          max="1000"
-          step="1"
-          placeholder="e.g. 15"
-        >
-
-      </div>
-
-
-      <div class="total-card">
-
-        <div>
-          <span>Price per vote</span>
-          <strong id="modalPrice">₦100</strong>
-        </div>
-
-        <div class="total-line">
-          <span>Total amount</span>
-          <strong id="modalTotal">₦0</strong>
-        </div>
-
-      </div>
-
-
-      <!-- Kept in DOM for compatibility with existing code,
-           but hidden by app.js because voters are anonymous. -->
-
-      <div
-        class="voter-fields"
-        id="voterFields"
-      >
-
-        <label>
-          Your Name
-          <input
-            id="voterName"
-            type="text"
-            placeholder="Enter your full name"
-            autocomplete="name"
-          >
-        </label>
-
-        <label>
-          Email
-          <input
-            id="voterEmail"
-            type="email"
-            placeholder="you@example.com"
-            autocomplete="email"
-          >
-        </label>
-
-        <label>
-          Phone Number
-          <input
-            id="voterPhone"
-            type="tel"
-            placeholder="080..."
-            autocomplete="tel"
-          >
-        </label>
-
-      </div>
-
-      <div
-        class="error-box hidden"
-        id="paymentError"
-      ></div>
-
-
-      <button
-        class="btn btn-purple wide"
-        id="pay"
-        type="button"
-        disabled
-      >
-        Make Payment
-        <span>→</span>
-      </button>
-
-
-      <p class="modal-footnote">
-        Your vote is added only after successful server-side payment verification.
-      </p>
-
-    </div>
+    </footer>
 
   </div>
 
 
-  <!-- =======================================================
-       SUCCESS MODAL
-  ======================================================== -->
+  <!-- FINAL RESULTS SCRIPT -->
 
-  <div
-    class="success-modal hidden"
-    id="successModal"
-  >
-
-    <div class="success-card">
-
-      <div class="success-icon">
-        ✓
-      </div>
-
-      <span class="eyebrow purple">
-        PAYMENT VERIFIED
-      </span>
-
-      <h2>
-        Vote Successful!
-      </h2>
-
-      <p id="successText"></p>
-
-
-      <div class="success-total">
-
-        <span>
-          New total votes
-        </span>
-
-        <strong id="successVotes">
-          0
-        </strong>
-
-      </div>
-
-
-      <div class="success-ref">
-
-        <span>
-          Reference
-        </span>
-
-        <strong id="successReference"></strong>
-
-      </div>
-
-
-      <button
-        class="btn btn-purple wide"
-        id="successClose"
-        type="button"
-      >
-        Back to Voting
-      </button>
-
-
-      <a
-        class="btn btn-outline wide"
-        href="#results"
-        id="successResults"
-      >
-        View Leaderboard
-      </a>
-
-    </div>
-
-  </div>
-
-
-  <script
-    type="module"
-    src="js/app.js"
-  ></script>
+  <script type="module" src="js/app.js"></script>
 
 </body>
 </html>

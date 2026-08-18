@@ -1,16 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "napas-payment-worker",
+  "name": "crimson-wave-afc5",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-14",
-  "observability": {
-    "enabled": true
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "YOUR_DATABASE_NAME",
-      "database_id": "YOUR_DATABASE_ID"
-    }
-  ]
+  "compatibility_date": "2026-08-10",
+  "workers_dev": true
 }

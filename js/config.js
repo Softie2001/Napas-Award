@@ -7,10 +7,4 @@ export const FIREBASE_CONFIG = {
   appId: "1:1051432026976:web:8f20bb686313faa81dd405"
 };
 
-export const CLOUDINARY_CLOUD_NAME = "q2ozzf5z";
-
-export const CLOUDINARY_UPLOAD_PRESET = "napas_contestants";
-
-export const ADMIN_EMAIL = "quadrisubomi@gmail.com";
-
 export const EVENT_TIME = "2026-08-21T22:00:00+01:00";
