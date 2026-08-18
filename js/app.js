@@ -1,9 +1,5 @@
 ﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import {
-  getFirestore,
-  collection,
-  onSnapshot
-} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { FIREBASE_CONFIG } from "./config.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
@@ -33,17 +29,27 @@ function categoryName(contestant) {
 
 function contestantImage(contestant) {
   return (
-    contestant?.photo ||
-    contestant?.image ||
-    contestant?.photoUrl ||
-    contestant?.imageUrl ||
+    contestant.photo ||
+    contestant.image ||
+    contestant.photoUrl ||
+    contestant.imageUrl ||
     ""
   );
 }
 
-/* -----------------------------
-   OVERALL VOTE TOTAL
------------------------------ */
+/*
+  FINAL RESULTS
+  ----------------
+  Every contestant is ranked together.
+  Categories do NOT affect the order.
+  Highest votes = #1.
+*/
+
+function getFinalRanking() {
+  return [...contestants].sort(
+    (a, b) => Number(b.votes || 0) - Number(a.votes || 0)
+  );
+}
 
 function renderOverallVotes() {
   const total = contestants.reduce(
@@ -58,205 +64,137 @@ function renderOverallVotes() {
   }
 }
 
-/* -----------------------------
-   WINNERS BY CATEGORY
------------------------------ */
-
 function renderWinners() {
-  const grouped = {};
-
-  contestants.forEach((contestant) => {
-    const category = categoryName(contestant);
-
-    if (!grouped[category]) {
-      grouped[category] = [];
-    }
-
-    grouped[category].push(contestant);
-  });
-
-  const winners = Object.entries(grouped)
-    .map(([category, entries]) => {
-      const winner = [...entries].sort(
-        (a, b) =>
-          Number(b.votes || 0) - Number(a.votes || 0)
-      )[0];
-
-      return {
-        category,
-        winner
-      };
-    })
-    .filter((item) => item.winner);
-
   const grid = $("#winnersGrid");
 
   if (!grid) return;
 
-  if (!winners.length) {
+  const ranking = getFinalRanking();
+
+  if (!ranking.length) {
     grid.innerHTML = `
       <div class="results-empty">
-        <h2>No final results found</h2>
+        <h2>No final results available</h2>
         <p>There are currently no published contestants.</p>
       </div>
     `;
-
     return;
   }
 
-  grid.innerHTML = winners
-    .map((item, index) => {
-      const contestant = item.winner;
-      const image = contestantImage(contestant);
-      const votes = Number(contestant.votes || 0);
+  grid.innerHTML = ranking.map((contestant, index) => {
+    const image = contestantImage(contestant);
+    const votes = Number(contestant.votes || 0);
 
-      return `
-        <article class="winner-card">
+    return `
+      <article class="winner-card">
 
-          <div class="winner-photo">
-            ${
-              image
-                ? `
-                  <img
-                    src="${esc(image)}"
-                    alt="${esc(contestant.name || "Winner")}"
-                    loading="lazy"
-                  >
-                `
-                : `
-                  <div class="winner-placeholder">
-                    ðŸ†
-                  </div>
-                `
-            }
+        <div class="winner-photo">
+          ${
+            image
+              ? `
+                <img
+                  src="${esc(image)}"
+                  alt="${esc(contestant.name || "Contestant")}"
+                  loading="lazy"
+                >
+              `
+              : `
+                <div class="winner-placeholder">🏆</div>
+              `
+          }
+        </div>
+
+        <div class="winner-body">
+
+          <div class="winner-number">
+            #${String(index + 1).padStart(2, "0")}
           </div>
 
-          <div class="winner-body">
-
-            <div class="winner-number">
-              WINNER ${String(index + 1).padStart(2, "0")}
-            </div>
-
-            <div class="winner-category">
-              ${esc(item.category)}
-            </div>
-
-            <h2 class="winner-name">
-              ${esc(contestant.name || "Unnamed Winner")}
-            </h2>
-
-            <div class="winner-votes">
-              <strong>
-                ${votes.toLocaleString("en-NG")}
-              </strong>
-
-              <span>
-                FINAL VOTES
-              </span>
-            </div>
-
+          <div class="winner-category">
+            ${esc(categoryName(contestant))}
           </div>
 
-        </article>
-      `;
-    })
-    .join("");
+          <h2 class="winner-name">
+            ${esc(contestant.name || "Unnamed Contestant")}
+          </h2>
+
+          <div class="winner-votes">
+            <strong>
+              ${votes.toLocaleString("en-NG")}
+            </strong>
+
+            <span>
+              FINAL VOTES
+            </span>
+          </div>
+
+        </div>
+
+      </article>
+    `;
+  }).join("");
 }
-
-/* -----------------------------
-   OVERALL RANKING
------------------------------ */
 
 function renderOverallLeaderboard() {
   const list = $("#overallLeaderboard");
 
   if (!list) return;
 
-  const sorted = [...contestants]
-    .sort(
-      (a, b) =>
-        Number(b.votes || 0) -
-        Number(a.votes || 0)
-    )
-    .slice(0, 10);
+  const ranking = getFinalRanking();
 
-  if (!sorted.length) {
-    list.innerHTML = `
-      <div class="results-empty">
-        <h2>No results available</h2>
+  list.innerHTML = ranking.map((contestant, index) => `
+    <div class="final-leader-row">
+
+      <span class="final-rank">
+        ${index + 1}
+      </span>
+
+      <div>
+        <strong>
+          ${esc(contestant.name || "Unnamed Contestant")}
+        </strong>
+
+        <small>
+          ${esc(categoryName(contestant))}
+        </small>
       </div>
-    `;
 
-    return;
-  }
+      <strong>
+        ${Number(contestant.votes || 0).toLocaleString("en-NG")}
+      </strong>
 
-  list.innerHTML = sorted
-    .map((contestant, index) => {
-      return `
-        <div class="final-leader-row">
-
-          <span class="final-rank">
-            ${index + 1}
-          </span>
-
-          <div>
-            <strong>
-              ${esc(contestant.name || "Unnamed")}
-            </strong>
-
-            <small>
-              ${esc(categoryName(contestant))}
-            </small>
-          </div>
-
-          <strong>
-            ${Number(contestant.votes || 0).toLocaleString("en-NG")}
-          </strong>
-
-        </div>
-      `;
-    })
-    .join("");
+    </div>
+  `).join("");
 }
 
-/* -----------------------------
-   RENDER EVERYTHING
------------------------------ */
-
-function renderResults() {
+function render() {
   renderOverallVotes();
   renderWinners();
   renderOverallLeaderboard();
 }
 
-/* -----------------------------
-   FIREBASE
------------------------------ */
-
 onSnapshot(
   collection(db, "contestants"),
-
   (snapshot) => {
+
     contestants = snapshot.docs
       .map((doc) => ({
         id: doc.id,
         ...doc.data()
       }))
       .filter(
-        (contestant) =>
-          contestant.published !== false
+        (contestant) => contestant.published !== false
       );
 
-    renderResults();
+    render();
   },
 
   (error) => {
+
     console.error(
       "Final results error:",
       error
     );
-
-    winners.sort((a, b) => Number(b.winner.votes || 0) - Number(a.winner.votes || 0));
 
     const grid = $("#winnersGrid");
 
@@ -264,12 +202,9 @@ onSnapshot(
       grid.innerHTML = `
         <div class="results-empty">
           <h2>Unable to load final results</h2>
-          <p>
-            Please refresh the page.
-          </p>
+          <p>Please refresh the page.</p>
         </div>
       `;
     }
   }
 );
-
